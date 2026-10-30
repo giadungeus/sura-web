@@ -61,6 +61,10 @@ export async function getProducts(): Promise<Product[]> {
   return products;
 }
 
+export async function getProductById(id: string): Promise<Product | undefined> {
+  return products.find((p) => p.id === id);
+}
+
 export async function getProductBySlug(slug: string): Promise<Product | undefined> {
   return products.find((p) => p.slug === slug);
 }

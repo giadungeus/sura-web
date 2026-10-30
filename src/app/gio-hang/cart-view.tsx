@@ -47,9 +47,8 @@ export function CartView() {
     );
   }
 
-  const shipping = subtotal >= siteConfig.freeShippingThreshold ? 0 : siteConfig.shippingFee;
+  const shipping = siteConfig.shipping.fee;
   const total = subtotal + shipping;
-  const remainingForFree = siteConfig.freeShippingThreshold - subtotal;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_340px] lg:items-start">
@@ -136,26 +135,20 @@ export function CartView() {
           </div>
           <div className="flex justify-between">
             <dt className="text-neutral-500">Phí vận chuyển</dt>
-            <dd>{shipping === 0 ? "Miễn phí" : formatVND(shipping)}</dd>
+            <dd>{shipping === 0 ? "0 ₫" : formatVND(shipping)}</dd>
           </div>
+          <p className="text-xs text-emerald-700">{siteConfig.shipping.label}</p>
           <div className="flex justify-between border-t border-neutral-200 pt-2 text-base font-semibold">
             <dt>Tổng cộng</dt>
             <dd className="text-brand-600">{formatVND(total)}</dd>
           </div>
         </dl>
-        {remainingForFree > 0 && (
-          <p className="mt-2 text-xs text-neutral-500">
-            Mua thêm {formatVND(remainingForFree)} để được miễn phí vận chuyển.
-          </p>
-        )}
-        <button
-          type="button"
-          disabled
-          title="Chức năng thanh toán sẽ có ở giai đoạn sau"
-          className="mt-3 h-12 w-full rounded-full bg-neutral-900 text-sm font-semibold text-white disabled:opacity-50"
+        <Link
+          href="/thanh-toan"
+          className="mt-3 flex h-12 w-full items-center justify-center rounded-full bg-neutral-900 text-sm font-semibold text-white hover:bg-neutral-800"
         >
-          Thanh toán (sắp ra mắt)
-        </button>
+          Tiến hành thanh toán
+        </Link>
       </aside>
     </div>
   );

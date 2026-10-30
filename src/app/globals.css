@@ -30,6 +30,9 @@ body {
   body:has([data-bottom-bar="cart"]) {
     padding-bottom: 13rem;
   }
+  body:has([data-bottom-bar="checkout"]) {
+    padding-bottom: 5.5rem;
+  }
 }
 
 /* Ẩn thanh cuộn ngang của các dải chip trên điện thoại. */

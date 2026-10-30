@@ -8,7 +8,7 @@ import { PurchasePanel } from "@/components/product/purchase-panel";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section } from "@/components/ui/section";
 import { siteConfig } from "@/config/site";
-import { formatNumber, formatSold, formatVND } from "@/lib/format";
+import { formatNumber, formatSold } from "@/lib/format";
 import {
   getCategoryTrail,
   getProductBySlug,
@@ -128,7 +128,7 @@ async function ProductContent({ params }: Pick<Props, "params">) {
             <ul className="space-y-2 rounded-2xl border border-neutral-200 p-4 text-sm text-neutral-600">
               <li className="flex items-center gap-2">
                 <Truck className="size-4 text-neutral-400" aria-hidden />
-                Miễn phí giao hàng cho đơn từ {formatVND(siteConfig.freeShippingThreshold)}
+                {siteConfig.shipping.shortLabel}
               </li>
               <li className="flex items-center gap-2">
                 <RotateCcw className="size-4 text-neutral-400" aria-hidden />

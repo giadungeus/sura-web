@@ -4,7 +4,6 @@ import { CategoryIcon } from "@/components/icons";
 import { ProductGrid } from "@/components/product/product-card";
 import { Section } from "@/components/ui/section";
 import { siteConfig } from "@/config/site";
-import { formatVND } from "@/lib/format";
 import {
   getFeaturedProducts,
   getNewestProducts,
@@ -13,7 +12,7 @@ import {
 } from "@/lib/data/catalog";
 
 const PERKS = [
-  { icon: Truck, text: `Miễn phí giao hàng từ ${formatVND(siteConfig.freeShippingThreshold)}` },
+  { icon: Truck, text: siteConfig.shipping.shortLabel },
   { icon: RotateCcw, text: "Đổi trả miễn phí 7 ngày" },
   { icon: ShieldCheck, text: "Hàng chính hãng 100%" },
 ];

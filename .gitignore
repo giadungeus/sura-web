@@ -20,6 +20,9 @@
 # production
 /build
 
+# dữ liệu đơn hàng (SQLite) — không đưa lên Git
+/.data/
+
 # misc
 .DS_Store
 *.pem

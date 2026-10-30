@@ -2,17 +2,10 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { CartItem, SelectedOptions } from "@/types";
+import { makeCartKey } from "@/lib/cart-key";
+import type { CartItem } from "@/types";
 
 export const CART_STORAGE_KEY = "shop-online-cart";
-
-/** Khóa ổn định cho một sản phẩm cùng bộ biến thể đã chọn. */
-export function makeCartKey(productId: string, options: SelectedOptions): string {
-  const parts = Object.keys(options)
-    .sort()
-    .map((name) => `${name}=${options[name]}`);
-  return [productId, ...parts].join("|");
-}
 
 type AddInput = Omit<CartItem, "key" | "quantity">;
 
@@ -23,6 +16,8 @@ type CartState = {
   addItem: (input: AddInput, quantity?: number) => void;
   updateQuantity: (key: string, quantity: number) => void;
   removeItem: (key: string) => void;
+  /** Cập nhật đơn giá theo giá server vừa báo (giữ giỏ hàng khớp với trang thanh toán). */
+  syncUnitPrices: (prices: Record<string, number>) => void;
   clear: () => void;
 };
 
@@ -66,6 +61,19 @@ export const useCartStore = create<CartState>()(
 
       removeItem: (key) =>
         set((state) => ({ items: state.items.filter((item) => item.key !== key) })),
+
+      syncUnitPrices: (prices) =>
+        set((state) => {
+          const changed = state.items.some(
+            (item) => prices[item.key] !== undefined && prices[item.key] !== item.unitPrice,
+          );
+          if (!changed) return state;
+          return {
+            items: state.items.map((item) =>
+              prices[item.key] !== undefined ? { ...item, unitPrice: prices[item.key] } : item,
+            ),
+          };
+        }),
 
       clear: () => set({ items: [] }),
     }),
