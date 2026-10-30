@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "eslint",
     "admin:setup": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/admin-setup.mts",
-    "catalog:import": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/catalog-import.mts"
+    "catalog:import": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/catalog-import.mts",
+    "backup": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/backup.mts"
   },
   "dependencies": {
     "lucide-react": "^1.64.0",

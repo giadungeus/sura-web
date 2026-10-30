@@ -35,7 +35,22 @@ Sửa sản phẩm, danh mục, giá, tồn kho trong trang quản trị thì **
   `$env:SHOP_DB_PATH = "D:\du-lieu\shop.sqlite"; $env:SHOP_UPLOAD_DIR = "D:\du-lieu\anh"; npm run start`
 - Thư mục `.data/` đã được loại khỏi Git (chứa thông tin khách hàng, mật khẩu đã băm, ảnh).
 - Cấu trúc CSDL tự nâng cấp (migration) khi khởi động; dữ liệu cũ được giữ nguyên.
-- **Sao lưu:** dừng server rồi sao chép cả thư mục `.data/` (gồm `shop.sqlite`, các tệp `shop.sqlite-wal`/`-shm` nếu có, và `uploads/`).
+- Đường dẫn tuyệt đối mặc định trên máy này: CSDL `C:\Users\PC\Desktop\Code web\shop-online\.data\shop.sqlite`, ảnh `C:\Users\PC\Desktop\Code web\shop-online\.data\uploads\products\` (thư mục ảnh được tạo khi tải ảnh đầu tiên). Đường dẫn tính theo **thư mục chạy lệnh** `npm run start`, nên luôn chạy lệnh trong thư mục dự án.
+
+### Sao lưu và khôi phục
+
+**Sao lưu (chạy được khi website đang chạy):**
+
+```bash
+npm run backup                         # → .data/backups/<thời-gian>/
+npm run backup -- --dest "D:\SaoLuu"   # → D:\SaoLuu\<thời-gian>/ (nên lưu ra ổ/thiết bị khác)
+```
+
+- CSDL được chụp bằng API sao lưu của SQLite: bản chụp **nhất quán**, gồm cả dữ liệu còn nằm trong tệp `shop.sqlite-wal`, và được gộp thành **một tệp `shop.sqlite` duy nhất**. Không sao chép riêng tệp `shop.sqlite` khi server đang chạy: dữ liệu mới có thể vẫn nằm trong tệp `-wal`.
+- Ảnh được chép **sau** khi chụp CSDL (ảnh luôn được ghi ra đĩa trước khi CSDL ghi nhận và không bao giờ bị ghi đè), nên mọi ảnh mà bản sao CSDL nhắc tới đều có mặt.
+- Lệnh kiểm tra `integrity_check`, đối chiếu ảnh và ghi `thong-tin-sao-luu.json`. Nếu CSDL lỗi hoặc thiếu tệp ảnh, lệnh báo rõ và kết thúc với mã lỗi.
+
+**Khôi phục:** dừng server → đổi tên `.data/shop.sqlite` cũ và xoá `.data/shop.sqlite-wal`, `.data/shop.sqlite-shm` (nếu có) → chép `shop.sqlite` từ bản sao lưu vào `.data/` → chép nội dung `uploads/products/` của bản sao lưu vào `.data/uploads/products/` → chạy lại `npm run start`.
 - Muốn xoá toàn bộ dữ liệu thử nghiệm: dừng server rồi xoá `.data/`. Lần chạy sau sẽ tạo CSDL mới và nhập lại sản phẩm mẫu.
 
 ### Nhập sản phẩm mẫu vào CSDL

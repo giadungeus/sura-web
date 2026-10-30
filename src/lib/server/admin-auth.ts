@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { getDb, withTransaction } from "@/lib/server/db";
 import { hashPassword, verifyPassword } from "@/lib/server/password";
 
@@ -74,6 +75,9 @@ type SessionRow = {
  * hoặc tài khoản đã bị thay đổi. Được ghi nhớ trong một request.
  */
 export const getAdminSession = cache(async (): Promise<AdminSession | null> => {
+  // Kiểm tra hạn phiên dùng thời gian hiện tại: báo Next.js chỉ chạy lúc có yêu cầu thật,
+  // không chạy trong lượt dựng trước (tránh lỗi "unstable value Date.now()").
+  await connection();
   const token = (await cookies()).get(ADMIN_SESSION_COOKIE)?.value;
   if (!token || token.length > 100) return null;
 
