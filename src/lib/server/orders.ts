@@ -1,7 +1,8 @@
 import "server-only";
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import type { CustomerInput } from "@/lib/checkout/customer";
-import type { PricedLine } from "@/lib/checkout/types";
+import type { CartIssue, PricedLine } from "@/lib/checkout/types";
+import { isProductPurchasable } from "@/lib/server/pricing";
 import { isOrderStatus, type OrderStatus } from "@/lib/order-status";
 import { getDb, withTransaction } from "@/lib/server/db";
 import type { ProductImage, SelectedOptions } from "@/types";
@@ -33,9 +34,30 @@ export type NewOrder = {
   total: number;
 };
 
+/** Mã đơn đã tạo với khoá chống trùng này (yêu cầu gửi lại sau khi đã thành công). */
+export function findOrderCodeByIdempotencyKey(key: string): string | null {
+  const row = getDb().prepare("SELECT code FROM orders WHERE idempotency_key = ?").get(key) as
+    | { code: string }
+    | undefined;
+  return row?.code ?? null;
+}
+
+/** Lỗi nghiệp vụ khi lưu đơn: giao dịch bị huỷ, không trừ kho, không tạo đơn. */
+export class OrderConflictError extends Error {
+  constructor(
+    readonly kind: "cart" | "price-changed",
+    readonly issues: CartIssue[] = [],
+  ) {
+    super(kind);
+  }
+}
+
 /**
- * Lưu đơn trong một giao dịch. Nếu `idempotencyKey` đã tồn tại (bấm nhiều lần,
- * gửi lại sau lỗi mạng) thì trả về đơn đã có, không tạo đơn mới.
+ * Lưu đơn và trừ kho trong CÙNG một giao dịch (BEGIN IMMEDIATE: chỉ một giao dịch ghi
+ * tại một thời điểm, nên các yêu cầu đồng thời không thể cùng mua món cuối cùng).
+ *
+ * Nếu `idempotencyKey` đã tồn tại (bấm nhiều lần, gửi lại sau lỗi mạng) thì trả về
+ * đơn đã có — không tạo đơn mới và không trừ kho lần nữa.
  */
 export function createOrder(order: NewOrder): { code: string; created: boolean } {
   return withTransaction((db) => {
@@ -44,11 +66,49 @@ export function createOrder(order: NewOrder): { code: string; created: boolean }
       .get(order.idempotencyKey) as { code: string } | undefined;
     if (existing) return { code: existing.code, created: false };
 
+    // Kiểm tra lại từng dòng ngay trong giao dịch rồi trừ kho có điều kiện.
+    const issues: CartIssue[] = [];
+    let priceChanged = false;
+    const readVariant = db.prepare(
+      "SELECT price, stock, is_active, product_id FROM product_variants WHERE id = ?",
+    );
+    const decrement = db.prepare(
+      "UPDATE product_variants SET stock = stock - ? WHERE id = ? AND is_active = 1 AND stock >= ?",
+    );
+    for (const line of order.lines) {
+      const v = readVariant.get(line.variantId) as
+        | { price: number; stock: number; is_active: number; product_id: string }
+        | undefined;
+      if (!v || !v.is_active || v.product_id !== line.productId || !isProductPurchasable(db, line.productId)) {
+        issues.push({ key: line.key, message: "Sản phẩm không còn được bán.", fix: { type: "remove" } });
+        continue;
+      }
+      if (v.price !== line.unitPrice) {
+        priceChanged = true;
+        continue;
+      }
+      const r = decrement.run(line.quantity, line.variantId, line.quantity);
+      if (r.changes !== 1) {
+        issues.push(
+          v.stock > 0
+            ? {
+                key: line.key,
+                message: `Chỉ còn ${v.stock} sản phẩm, vui lòng giảm số lượng.`,
+                fix: { type: "set-quantity", quantity: v.stock },
+              }
+            : { key: line.key, message: "Sản phẩm vừa hết hàng.", fix: { type: "remove" } },
+        );
+      }
+    }
+    // Ném lỗi để ROLLBACK: mọi lượt trừ kho ở trên đều được hoàn tác.
+    if (issues.length > 0) throw new OrderConflictError("cart", issues);
+    if (priceChanged) throw new OrderConflictError("price-changed");
+
     const now = new Date();
     const insertOrder = db.prepare(`
       INSERT INTO orders (code, idempotency_key, status, customer_name, phone, address, note,
-                          payment_method, subtotal, shipping_fee, total, created_at, updated_at)
-      VALUES (?, ?, 'cho_xac_nhan', ?, ?, ?, ?, 'COD', ?, ?, ?, ?, ?)
+                          payment_method, subtotal, shipping_fee, total, created_at, updated_at, stock_applied)
+      VALUES (?, ?, 'cho_xac_nhan', ?, ?, ?, ?, 'COD', ?, ?, ?, ?, ?, 1)
     `);
 
     let code = "";
@@ -79,11 +139,13 @@ export function createOrder(order: NewOrder): { code: string; created: boolean }
        VALUES (?, NULL, 'cho_xac_nhan', 'Khách đặt hàng', NULL, ?)`,
     ).run(orderId, now.toISOString());
 
+    // Lưu ảnh chụp tên, biến thể, giá tại thời điểm đặt: sửa sản phẩm sau này không đổi đơn cũ.
     const insertItem = db.prepare(`
       INSERT INTO order_items (order_id, product_id, product_slug, product_name, brand,
-                               options_json, image_json, unit_price, quantity, line_total)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               options_json, image_json, unit_price, quantity, line_total, variant_id, sku)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    const addSold = db.prepare("UPDATE products SET sold = sold + ? WHERE id = ?");
     for (const line of order.lines) {
       insertItem.run(
         orderId,
@@ -96,7 +158,10 @@ export function createOrder(order: NewOrder): { code: string; created: boolean }
         line.unitPrice,
         line.quantity,
         line.lineTotal,
+        line.variantId,
+        line.sku,
       );
+      addSold.run(line.quantity, line.productId);
     }
     return { code, created: true };
   });
@@ -115,8 +180,13 @@ export type StoredOrder = {
   shippingFee: number;
   total: number;
   createdAt: string;
+  /** Đơn đã trừ kho khi đặt (đơn từ giai đoạn 4). Đơn cũ = false. */
+  stockApplied: boolean;
+  stockRestoredAt: string | null;
   items: {
     productId: string;
+    variantId: number | null;
+    sku: string | null;
     slug: string;
     name: string;
     brand: string;
@@ -142,6 +212,8 @@ type OrderRow = {
   shipping_fee: number;
   total: number;
   created_at: string;
+  stock_applied: number;
+  stock_restored_at: string | null;
 };
 
 type ItemRow = {
@@ -154,6 +226,8 @@ type ItemRow = {
   unit_price: number;
   quantity: number;
   line_total: number;
+  variant_id: number | null;
+  sku: string | null;
 };
 
 export function getOrderByCode(code: string): StoredOrder | null {
@@ -177,8 +251,12 @@ export function getOrderByCode(code: string): StoredOrder | null {
     shippingFee: row.shipping_fee,
     total: row.total,
     createdAt: row.created_at,
+    stockApplied: row.stock_applied === 1,
+    stockRestoredAt: row.stock_restored_at,
     items: items.map((item) => ({
       productId: item.product_id,
+      variantId: item.variant_id,
+      sku: item.sku,
       slug: item.product_slug,
       name: item.product_name,
       brand: item.brand,

@@ -12,6 +12,8 @@ export type OrderItemInput = {
 export type PricedLine = {
   key: string;
   productId: string;
+  variantId: number;
+  sku: string;
   slug: string;
   name: string;
   brand: string;

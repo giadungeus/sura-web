@@ -109,6 +109,87 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_orders_created ON orders(created_at);
   CREATE INDEX idx_orders_phone ON orders(phone);
   `,
+
+  // v3: danh mục, sản phẩm, biến thể (SKU/giá/tồn kho), ảnh; theo dõi trừ/hoàn kho của đơn
+  `
+  CREATE TABLE categories (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug            TEXT    NOT NULL UNIQUE,
+    name            TEXT    NOT NULL,
+    description     TEXT    NOT NULL DEFAULT '',
+    icon            TEXT    NOT NULL DEFAULT 'shopping-bag',
+    parent_id       INTEGER REFERENCES categories(id) ON DELETE RESTRICT,
+    attributes_json TEXT    NOT NULL DEFAULT '[]',
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    is_visible      INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT    NOT NULL,
+    updated_at      TEXT    NOT NULL
+  );
+  CREATE INDEX idx_categories_parent ON categories(parent_id, sort_order);
+
+  CREATE TABLE products (
+    id                TEXT    PRIMARY KEY,
+    slug              TEXT    NOT NULL UNIQUE,
+    name              TEXT    NOT NULL,
+    brand             TEXT    NOT NULL DEFAULT '',
+    category_id       INTEGER NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
+    short_description TEXT    NOT NULL DEFAULT '',
+    description       TEXT    NOT NULL DEFAULT '',
+    highlights_json   TEXT    NOT NULL DEFAULT '[]',
+    specs_json        TEXT    NOT NULL DEFAULT '{}',
+    tags_json         TEXT    NOT NULL DEFAULT '[]',
+    option_names_json TEXT    NOT NULL DEFAULT '[]',
+    rating            REAL    NOT NULL DEFAULT 0,
+    review_count      INTEGER NOT NULL DEFAULT 0,
+    sold              INTEGER NOT NULL DEFAULT 0,
+    placeholder_tone  TEXT    NOT NULL DEFAULT 'slate',
+    placeholder_icon  TEXT    NOT NULL DEFAULT 'shopping-bag',
+    is_visible        INTEGER NOT NULL DEFAULT 1,
+    search_text       TEXT    NOT NULL DEFAULT '',
+    created_at        TEXT    NOT NULL,
+    updated_at        TEXT    NOT NULL
+  );
+  CREATE INDEX idx_products_category ON products(category_id);
+  CREATE INDEX idx_products_created ON products(created_at);
+
+  -- Sản phẩm không biến thể có đúng một dòng với options_json = '{}'.
+  CREATE TABLE product_variants (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id       TEXT    NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    sku              TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    options_json     TEXT    NOT NULL DEFAULT '{}',
+    options_key      TEXT    NOT NULL DEFAULT '',
+    price            INTEGER NOT NULL CHECK (price >= 0),
+    compare_at_price INTEGER CHECK (compare_at_price IS NULL OR compare_at_price >= 0),
+    stock            INTEGER NOT NULL CHECK (stock >= 0),
+    position         INTEGER NOT NULL DEFAULT 0,
+    is_active        INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (product_id, options_key)
+  );
+  CREATE INDEX idx_product_variants_product ON product_variants(product_id, position);
+
+  -- Ảnh vừa tải lên có product_id NULL cho tới khi lưu sản phẩm.
+  CREATE TABLE product_images (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id  TEXT    REFERENCES products(id) ON DELETE SET NULL,
+    file_name   TEXT    NOT NULL UNIQUE,
+    width       INTEGER NOT NULL,
+    height      INTEGER NOT NULL,
+    size_bytes  INTEGER NOT NULL,
+    position    INTEGER NOT NULL DEFAULT 0,
+    is_primary  INTEGER NOT NULL DEFAULT 0,
+    uploaded_by TEXT,
+    created_at  TEXT    NOT NULL
+  );
+  CREATE INDEX idx_product_images_product ON product_images(product_id, position);
+
+  -- Liên kết dòng hàng với biến thể để hoàn kho. Đơn cũ để NULL.
+  ALTER TABLE order_items ADD COLUMN variant_id INTEGER;
+  ALTER TABLE order_items ADD COLUMN sku TEXT;
+  -- 1 = đơn đã trừ kho khi đặt; đơn cũ = 0 nên không bao giờ bị hoàn kho tự động.
+  ALTER TABLE orders ADD COLUMN stock_applied INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE orders ADD COLUMN stock_restored_at TEXT;
+  `,
 ];
 
 export function migrate(db: DatabaseSync): void {

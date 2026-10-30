@@ -76,6 +76,13 @@ function OrderDetail({ order }: { order: AdminOrderDetail }) {
             </span>
           )}
         </div>
+        <p className="text-xs text-neutral-500">
+          {order.stockApplied
+            ? order.stockRestoredAt
+              ? `Kho: đã trừ khi đặt, đã hoàn lại lúc ${formatDateTime(order.stockRestoredAt)}.`
+              : "Kho: đã trừ tồn kho khi đặt (huỷ đơn sẽ hoàn kho)."
+            : "Kho: đơn cũ trước khi quản lý tồn kho — không tự trừ/hoàn kho."}
+        </p>
         <p className="text-sm text-neutral-500">
           Đặt lúc {formatDateTime(order.createdAt)} · Cập nhật {formatDateTime(order.updatedAt)} · Thanh toán khi
           nhận hàng (COD)
@@ -94,6 +101,7 @@ function OrderDetail({ order }: { order: AdminOrderDetail }) {
                     <p className="font-medium">{item.name}</p>
                     <p className="text-xs text-neutral-500">
                       {item.brand} · Mã SP {item.productId}
+                      {item.sku && ` · SKU ${item.sku}`}
                     </p>
                     {Object.keys(item.options).length > 0 && (
                       <p className="mt-0.5 text-xs text-neutral-700">

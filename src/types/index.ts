@@ -60,21 +60,69 @@ export type VariantGroup = {
 
 export type ProductTag = "noi-bat" | "moi";
 
+/** Ảnh hiển thị của sản phẩm: ảnh thật (url) nếu có, nếu không thì nền màu + biểu tượng. */
 export type ProductImage = {
   tone: Tone;
   icon: IconKey;
+  url?: string;
 };
 
+export type ProductPhoto = {
+  url: string;
+  width: number;
+  height: number;
+};
+
+/** Một phiên bản có thể mua: SKU, thuộc tính, giá và tồn kho riêng. */
+export type ProductVariant = {
+  id: number;
+  sku: string;
+  /** Thuộc tính, vd. { "Màu sắc": "Đen", "Size": "M" }; rỗng nếu sản phẩm không có biến thể. */
+  options: SelectedOptions;
+  price: number;
+  compareAtPrice?: number;
+  stock: number;
+};
+
+/** Sản phẩm hiển thị ở cửa hàng (đọc từ CSDL). */
 export type Product = {
   id: string;
   slug: string;
   name: string;
   brand: string;
-  /** slug của danh mục cấp cuối mà sản phẩm thuộc về. */
+  /** slug của danh mục mà sản phẩm thuộc về. */
   category: string;
-  /** Giá bán (VNĐ) cho lựa chọn mặc định. */
+  /** Giá thấp nhất trong các biến thể đang bán (VNĐ). */
   price: number;
-  /** Giá niêm yết trước giảm (VNĐ). */
+  /** Giá niêm yết của biến thể có giá thấp nhất (VNĐ). */
+  originalPrice?: number;
+  rating: number;
+  reviewCount: number;
+  sold: number;
+  /** Tổng tồn kho của các biến thể đang bán. */
+  stock: number;
+  shortDescription: string;
+  description: string;
+  highlights: string[];
+  /** Thông số theo `key` của AttributeDef trong danh mục. */
+  specs: Record<string, string>;
+  /** Tên các thuộc tính biến thể theo thứ tự, vd. ["Màu sắc", "Size"]. */
+  optionNames: string[];
+  variants: ProductVariant[];
+  tags?: ProductTag[];
+  image: ProductImage;
+  photos: ProductPhoto[];
+  createdAt: string;
+};
+
+/** Định dạng dữ liệu mẫu ban đầu (src/data/products.ts), chỉ dùng cho bước nhập vào CSDL. */
+export type SeedProduct = {
+  id: string;
+  slug: string;
+  name: string;
+  brand: string;
+  category: string;
+  price: number;
   originalPrice?: number;
   rating: number;
   reviewCount: number;
@@ -83,11 +131,10 @@ export type Product = {
   shortDescription: string;
   description: string;
   highlights: string[];
-  /** Thông số theo `key` của AttributeDef trong danh mục. */
   specs: Record<string, string>;
   variants?: VariantGroup[];
   tags?: ProductTag[];
-  image: ProductImage;
+  image: { tone: Tone; icon: IconKey };
   createdAt: string;
 };
 
@@ -102,7 +149,7 @@ export type CartItem = {
   name: string;
   brand: string;
   options: SelectedOptions;
-  /** Đơn giá đã gồm chênh lệch của biến thể (VNĐ). */
+  /** Đơn giá của biến thể lúc thêm vào giỏ (VNĐ); server luôn tính lại khi đặt. */
   unitPrice: number;
   quantity: number;
   stock: number;

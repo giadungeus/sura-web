@@ -1,10 +1,10 @@
-import type { Product } from "@/types";
+import type { SeedProduct } from "@/types";
 
 /**
  * 24 sản phẩm mẫu thuộc 6 ngành hàng (2 sản phẩm cho mỗi danh mục con).
  * Thương hiệu và giá chỉ mang tính minh họa.
  */
-export const products: Product[] = [
+export const products: SeedProduct[] = [
   // ───────────── Điện tử / Điện thoại ─────────────
   {
     id: "p01",

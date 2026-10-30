@@ -9,17 +9,11 @@ import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section } from "@/components/ui/section";
 import { siteConfig } from "@/config/site";
 import { formatNumber, formatSold } from "@/lib/format";
-import {
-  getCategoryTrail,
-  getProductBySlug,
-  getProducts,
-  getRelatedProducts,
-} from "@/lib/data/catalog";
+import { getCategoryTrail, getProductBySlug, getRelatedProducts } from "@/lib/data/catalog";
+import { ProductGallery } from "./product-gallery";
 
-export async function generateStaticParams() {
-  const products = await getProducts();
-  return products.map((p) => ({ slug: p.slug }));
-}
+// Không dùng generateStaticParams: sản phẩm đọc từ CSDL lúc có yêu cầu,
+// nên sản phẩm thêm/sửa trong trang quản trị hiển thị ngay mà không cần build lại.
 
 export async function generateMetadata({
   params,
@@ -84,12 +78,11 @@ async function ProductContent({ params }: Pick<Props, "params">) {
         />
 
         <div className="mt-4 grid gap-6 md:grid-cols-2 md:gap-10">
-          <ProductImage
-            image={product.image}
-            label={product.name}
-            className="rounded-3xl"
-            iconClassName="size-1/3"
-          />
+          {product.photos.length > 0 ? (
+            <ProductGallery photos={product.photos} name={product.name} />
+          ) : (
+            <ProductImage image={product.image} label={product.name} className="rounded-3xl" iconClassName="size-1/3" />
+          )}
 
           <div className="space-y-5">
             <div className="space-y-2">
@@ -117,9 +110,7 @@ async function ProductContent({ params }: Pick<Props, "params">) {
                 slug: product.slug,
                 name: product.name,
                 brand: product.brand,
-                price: product.price,
-                originalPrice: product.originalPrice,
-                stock: product.stock,
+                optionNames: product.optionNames,
                 variants: product.variants,
                 image: product.image,
               }}
@@ -147,7 +138,8 @@ async function ProductContent({ params }: Pick<Props, "params">) {
         <div className="mt-10 grid gap-8 md:grid-cols-2 md:gap-10">
           <section className="space-y-3">
             <h2 className="text-lg font-semibold">Mô tả sản phẩm</h2>
-            <p className="leading-7 text-neutral-700">{product.description}</p>
+            {/* Văn bản thuần: React tự thoát ký tự đặc biệt, không render HTML nên không thực thi mã. */}
+            <p className="leading-7 whitespace-pre-line text-neutral-700">{product.description}</p>
             <ul className="space-y-2">
               {product.highlights.map((h) => (
                 <li key={h} className="flex gap-2 text-neutral-700">

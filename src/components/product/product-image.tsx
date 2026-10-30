@@ -1,7 +1,8 @@
+import Image from "next/image";
 import { CategoryIcon } from "@/components/icons";
 import type { ProductImage as ProductImageData, Tone } from "@/types";
 
-/** Ảnh minh họa tạm thời: nền màu + biểu tượng ngành hàng. Thay bằng ảnh thật khi có. */
+/** Nền màu + biểu tượng ngành hàng khi sản phẩm chưa có ảnh thật. */
 const TONES: Record<Tone, string> = {
   slate: "from-slate-100 to-slate-200 text-slate-500",
   sky: "from-sky-50 to-sky-100 text-sky-500",
@@ -18,18 +19,27 @@ export function ProductImage({
   label,
   className = "",
   iconClassName = "size-1/3",
+  sizes = "(min-width: 1024px) 25vw, 50vw",
 }: {
   image: ProductImageData;
   /** Văn bản thay thế cho trình đọc màn hình. */
   label: string;
   className?: string;
   iconClassName?: string;
+  sizes?: string;
 }) {
+  if (image.url) {
+    return (
+      <div className={`relative aspect-square overflow-hidden bg-neutral-50 ${className}`}>
+        <Image src={image.url} alt={label} fill unoptimized sizes={sizes} className="object-cover" />
+      </div>
+    );
+  }
   return (
     <div
       role="img"
       aria-label={label}
-      className={`flex aspect-square items-center justify-center bg-linear-to-br ${TONES[image.tone]} ${className}`}
+      className={`flex aspect-square items-center justify-center bg-linear-to-br ${TONES[image.tone] ?? TONES.slate} ${className}`}
     >
       <CategoryIcon icon={image.icon} className={iconClassName} strokeWidth={1.25} />
     </div>

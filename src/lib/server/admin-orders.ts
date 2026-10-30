@@ -1,4 +1,5 @@
 import "server-only";
+import type { DatabaseSync } from "node:sqlite";
 import { normalizePhone } from "@/lib/checkout/customer";
 import {
   CANCEL_REASON_LIMITS,
@@ -250,8 +251,41 @@ export function changeOrderStatus(input: {
       `INSERT INTO order_status_history (order_id, from_status, to_status, reason, admin_username, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     ).run(row.id, current, to, to === "da_huy" ? reason : "", input.adminUsername, now);
+
+    if (to === "da_huy") {
+      const restored = restoreStock(db, row.id, now);
+      if (restored > 0) {
+        return { ok: true, message: `Đã huỷ đơn và hoàn ${restored} sản phẩm vào kho.` };
+      }
+    }
     return { ok: true, message: `Đã chuyển đơn sang “${STATUS_LABELS[to]}”.` };
   });
+}
+
+/**
+ * Hoàn kho cho đơn bị huỷ. Chỉ áp dụng cho đơn đã trừ kho lúc đặt (stock_applied = 1)
+ * và chưa hoàn lần nào (stock_restored_at IS NULL) — nên mỗi đơn hoàn đúng một lần.
+ * Đơn thử nghiệm cũ (trước khi có quản lý kho) không bị đụng tới.
+ * Gọi bên trong giao dịch của thao tác huỷ.
+ */
+function restoreStock(db: DatabaseSync, orderId: number, now: string): number {
+  const claim = db
+    .prepare("UPDATE orders SET stock_restored_at = ? WHERE id = ? AND stock_applied = 1 AND stock_restored_at IS NULL")
+    .run(now, orderId);
+  if (claim.changes !== 1) return 0;
+
+  const items = db
+    .prepare("SELECT product_id, variant_id, quantity FROM order_items WHERE order_id = ? AND variant_id IS NOT NULL")
+    .all(orderId) as { product_id: string; variant_id: number; quantity: number }[];
+  const addStock = db.prepare("UPDATE product_variants SET stock = stock + ? WHERE id = ?");
+  const subSold = db.prepare("UPDATE products SET sold = MAX(sold - ?, 0) WHERE id = ?");
+  let restored = 0;
+  for (const item of items) {
+    // Biến thể đã bị xoá khỏi CSDL thì không còn chỗ để hoàn (biến thể có đơn chỉ bị ẩn, không bị xoá).
+    restored += addStock.run(item.quantity, item.variant_id).changes ? item.quantity : 0;
+    subSold.run(item.quantity, item.product_id);
+  }
+  return restored;
 }
 
 export function addInternalNote(input: { code: unknown; body: unknown; adminUsername: string }): MutationResult {

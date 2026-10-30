@@ -1,9 +1,9 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { siteConfig } from "@/config/site";
 import { getRootCategories } from "@/lib/data/catalog";
 
-export async function Footer() {
-  const roots = await getRootCategories();
+export function Footer() {
   return (
     <footer className="mt-16 border-t border-neutral-200 bg-neutral-50">
       <div className="mx-auto grid max-w-6xl gap-8 px-4 py-10 text-sm sm:grid-cols-3">
@@ -13,15 +13,9 @@ export async function Footer() {
         </div>
         <div>
           <p className="mb-3 font-medium">Ngành hàng</p>
-          <ul className="grid grid-cols-2 gap-2 text-neutral-600 sm:grid-cols-1">
-            {roots.map((c) => (
-              <li key={c.slug}>
-                <Link href={`/danh-muc/${c.slug}`} className="hover:text-neutral-900">
-                  {c.name}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <Suspense fallback={<div className="h-24" />}>
+            <FooterCategories />
+          </Suspense>
         </div>
         <div>
           <p className="mb-3 font-medium">Hỗ trợ khách hàng</p>
@@ -36,5 +30,20 @@ export async function Footer() {
         Website demo · Dữ liệu sản phẩm chỉ mang tính minh họa
       </div>
     </footer>
+  );
+}
+
+async function FooterCategories() {
+  const roots = await getRootCategories();
+  return (
+    <ul className="grid grid-cols-2 gap-2 text-neutral-600 sm:grid-cols-1">
+      {roots.map((c) => (
+        <li key={c.slug}>
+          <Link href={`/danh-muc/${c.slug}`} className="hover:text-neutral-900">
+            {c.name}
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }

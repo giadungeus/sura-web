@@ -7,7 +7,6 @@ import { ProductListing } from "@/components/listing/product-listing";
 import { ProductGridSkeleton } from "@/components/product/product-card";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import {
-  getCategories,
   getCategoryBySlug,
   getCategoryTrail,
   getChildCategories,
@@ -15,10 +14,7 @@ import {
 } from "@/lib/data/catalog";
 import { parseListingParams, type SearchParamsRecord } from "@/lib/listing";
 
-export async function generateStaticParams() {
-  const categories = await getCategories();
-  return categories.map((c) => ({ slug: c.slug }));
-}
+// Không dùng generateStaticParams: danh mục đọc từ CSDL lúc có yêu cầu.
 
 export async function generateMetadata({
   params,

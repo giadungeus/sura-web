@@ -4,6 +4,10 @@ const nextConfig: NextConfig = {
   /* config options here */
   cacheComponents: true,
   partialPrefetching: true,
+  experimental: {
+    // Ảnh tải lên từng tệp một qua Server Action (tối đa 5 MB/ảnh + phần đầu multipart).
+    serverActions: { bodySizeLimit: "6mb" },
+  },
   async headers() {
     // Trang quản trị: không cho nhúng iframe (chống clickjacking), không lưu cache, không lập chỉ mục.
     const adminHeaders = [

@@ -2,6 +2,7 @@ import "server-only";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { seedCatalogIfNeeded } from "@/lib/server/catalog-seed";
 import { configure, migrate } from "@/lib/server/schema";
 
 /**
@@ -22,6 +23,7 @@ export function getDb(): DatabaseSync {
     const db = new DatabaseSync(dbPath);
     configure(db);
     migrate(db);
+    seedCatalogIfNeeded(db);
     globalForDb.__shopDb = db;
   }
   return globalForDb.__shopDb;

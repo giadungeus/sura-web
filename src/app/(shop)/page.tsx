@@ -1,7 +1,8 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { RotateCcw, ShieldCheck, Truck } from "lucide-react";
 import { CategoryIcon } from "@/components/icons";
-import { ProductGrid } from "@/components/product/product-card";
+import { ProductGrid, ProductGridSkeleton } from "@/components/product/product-card";
 import { Section } from "@/components/ui/section";
 import { siteConfig } from "@/config/site";
 import {
@@ -17,14 +18,7 @@ const PERKS = [
   { icon: ShieldCheck, text: "Hàng chính hãng 100%" },
 ];
 
-export default async function HomePage() {
-  const [roots, deals, featured, newest] = await Promise.all([
-    getRootCategories(),
-    getTopDiscountProducts(4),
-    getFeaturedProducts(8),
-    getNewestProducts(4),
-  ]);
-
+export default function HomePage() {
   return (
     <>
       {/* Banner */}
@@ -66,34 +60,55 @@ export default async function HomePage() {
 
       {/* Ngành hàng */}
       <Section title="Danh mục ngành hàng">
-        <ul className="grid grid-cols-3 gap-3 sm:grid-cols-6">
-          {roots.map((c) => (
-            <li key={c.slug}>
-              <Link
-                href={`/danh-muc/${c.slug}`}
-                className="flex flex-col items-center gap-2 rounded-2xl border border-neutral-200 px-2 py-4 text-center text-xs font-medium hover:border-neutral-300 hover:bg-neutral-50 sm:text-sm"
-              >
-                <span className="flex size-12 items-center justify-center rounded-full bg-neutral-100 text-neutral-700">
-                  <CategoryIcon icon={c.icon} className="size-6" />
-                </span>
-                {c.name}
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <Suspense fallback={<div className="h-56 animate-pulse rounded-2xl bg-neutral-100 sm:h-28" />}>
+          <RootCategories />
+        </Suspense>
       </Section>
 
       <Section title="Giảm giá sốc">
-        <ProductGrid products={deals} />
+        <Suspense fallback={<ProductGridSkeleton count={4} />}>
+          <ProductRow load={() => getTopDiscountProducts(4)} />
+        </Suspense>
       </Section>
 
       <Section title="Sản phẩm nổi bật">
-        <ProductGrid products={featured} />
+        <Suspense fallback={<ProductGridSkeleton count={8} />}>
+          <ProductRow load={() => getFeaturedProducts(8)} />
+        </Suspense>
       </Section>
 
       <Section title="Hàng mới về">
-        <ProductGrid products={newest} />
+        <Suspense fallback={<ProductGridSkeleton count={4} />}>
+          <ProductRow load={() => getNewestProducts(4)} />
+        </Suspense>
       </Section>
     </>
   );
+}
+
+async function RootCategories() {
+  const roots = await getRootCategories();
+  return (
+    <ul className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+              {roots.map((c) => (
+                <li key={c.slug}>
+                  <Link
+                    href={`/danh-muc/${c.slug}`}
+                    className="flex flex-col items-center gap-2 rounded-2xl border border-neutral-200 px-2 py-4 text-center text-xs font-medium hover:border-neutral-300 hover:bg-neutral-50 sm:text-sm"
+                  >
+                    <span className="flex size-12 items-center justify-center rounded-full bg-neutral-100 text-neutral-700">
+                      <CategoryIcon icon={c.icon} className="size-6" />
+                    </span>
+                    {c.name}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+  );
+}
+
+async function ProductRow({ load }: { load: () => Promise<import("@/types").Product[]> }) {
+  const products = await load();
+  if (products.length === 0) return <p className="text-sm text-neutral-500">Chưa có sản phẩm.</p>;
+  return <ProductGrid products={products} />;
 }

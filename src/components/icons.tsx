@@ -42,6 +42,9 @@ const ICONS: Record<IconKey, LucideIcon> = {
   backpack: Backpack,
 };
 
+/** Danh sách biểu tượng cho trang quản trị danh mục. */
+export const ICON_KEYS = Object.keys(ICONS) as IconKey[];
+
 export function CategoryIcon({
   icon,
   className,
@@ -51,6 +54,6 @@ export function CategoryIcon({
   className?: string;
   strokeWidth?: number;
 }) {
-  const Icon = ICONS[icon];
+  const Icon = ICONS[icon] ?? ShoppingBag; // Dự phòng nếu CSDL chứa tên biểu tượng lạ.
   return <Icon className={className} strokeWidth={strokeWidth} aria-hidden />;
 }

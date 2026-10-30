@@ -18,12 +18,24 @@ export default function ProtectedAdminLayout({ children }: { children: React.Rea
               <Store className="size-4" aria-hidden />
             </span>
             <span className="hidden sm:inline">Shop Online</span>
-            <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-xs font-medium text-neutral-600">Quản trị</span>
+            <span className="hidden rounded-md bg-neutral-100 px-1.5 py-0.5 text-xs font-medium text-neutral-600 sm:inline">
+              Quản trị
+            </span>
           </Link>
-          <nav aria-label="Quản trị" className="ml-2 flex items-center gap-1 text-sm">
-            <Link href="/admin" className="rounded-full px-3 py-1.5 font-medium text-neutral-900 hover:bg-neutral-100">
-              Đơn hàng
-            </Link>
+          <nav aria-label="Quản trị" className="no-scrollbar flex min-w-0 items-center gap-0.5 overflow-x-auto text-sm sm:ml-2">
+            {[
+              { href: "/admin", label: "Đơn hàng" },
+              { href: "/admin/san-pham", label: "Sản phẩm" },
+              { href: "/admin/danh-muc", label: "Danh mục" },
+            ].map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="shrink-0 rounded-full px-2.5 py-1.5 font-medium whitespace-nowrap text-neutral-700 hover:bg-neutral-100 hover:text-neutral-900 sm:px-3"
+              >
+                {item.label}
+              </Link>
+            ))}
             <Link
               href="/"
               target="_blank"
@@ -33,7 +45,7 @@ export default function ProtectedAdminLayout({ children }: { children: React.Rea
               Xem cửa hàng <ExternalLink className="size-3.5" aria-hidden />
             </Link>
           </nav>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <Suspense fallback={null}>
               <AdminName />
             </Suspense>
