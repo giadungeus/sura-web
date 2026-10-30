@@ -20,6 +20,20 @@ export function formatSold(count: number): string {
   return numberFormatter.format(count);
 }
 
+const dateTimeFormatter = new Intl.DateTimeFormat("vi-VN", {
+  timeZone: "Asia/Ho_Chi_Minh",
+  hour: "2-digit",
+  minute: "2-digit",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+
+/** ISO -> "14:05 30/10/2026" theo giờ Việt Nam. */
+export function formatDateTime(iso: string): string {
+  return dateTimeFormatter.format(new Date(iso));
+}
+
 export function formatNumber(value: number): string {
   return numberFormatter.format(value);
 }

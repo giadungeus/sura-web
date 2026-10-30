@@ -4,6 +4,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { Banknote, CheckCircle2, FlaskConical, LockKeyhole, MapPin } from "lucide-react";
 import { ProductImage } from "@/components/product/product-image";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { siteConfig } from "@/config/site";
 import { formatVND } from "@/lib/format";
 import {
@@ -103,6 +104,9 @@ function OrderDetail({ order }: { order: StoredOrder }) {
           </span>
         </p>
         <p className="text-xs text-neutral-500">Đặt lúc {dateFormatter.format(new Date(order.createdAt))}</p>
+        <p className="flex items-center gap-2 text-sm text-neutral-600">
+          Trạng thái: <StatusBadge status={order.status} />
+        </p>
       </div>
 
       {order.isTest && (

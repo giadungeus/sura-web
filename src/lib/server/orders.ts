@@ -2,6 +2,7 @@ import "server-only";
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import type { CustomerInput } from "@/lib/checkout/customer";
 import type { PricedLine } from "@/lib/checkout/types";
+import { isOrderStatus, type OrderStatus } from "@/lib/order-status";
 import { getDb, withTransaction } from "@/lib/server/db";
 import type { ProductImage, SelectedOptions } from "@/types";
 
@@ -45,9 +46,9 @@ export function createOrder(order: NewOrder): { code: string; created: boolean }
 
     const now = new Date();
     const insertOrder = db.prepare(`
-      INSERT INTO orders (code, idempotency_key, customer_name, phone, address, note,
-                          payment_method, subtotal, shipping_fee, total, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'COD', ?, ?, ?, ?)
+      INSERT INTO orders (code, idempotency_key, status, customer_name, phone, address, note,
+                          payment_method, subtotal, shipping_fee, total, created_at, updated_at)
+      VALUES (?, ?, 'cho_xac_nhan', ?, ?, ?, ?, 'COD', ?, ?, ?, ?, ?)
     `);
 
     let code = "";
@@ -67,10 +68,16 @@ export function createOrder(order: NewOrder): { code: string; created: boolean }
         order.shippingFee,
         order.total,
         now.toISOString(),
+        now.toISOString(),
       );
       orderId = Number(result.lastInsertRowid);
     }
     if (!orderId) throw new Error("Không tạo được mã đơn hàng duy nhất.");
+
+    db.prepare(
+      `INSERT INTO order_status_history (order_id, from_status, to_status, reason, admin_username, created_at)
+       VALUES (?, NULL, 'cho_xac_nhan', 'Khách đặt hàng', NULL, ?)`,
+    ).run(orderId, now.toISOString());
 
     const insertItem = db.prepare(`
       INSERT INTO order_items (order_id, product_id, product_slug, product_name, brand,
@@ -97,6 +104,7 @@ export function createOrder(order: NewOrder): { code: string; created: boolean }
 
 export type StoredOrder = {
   code: string;
+  status: OrderStatus;
   isTest: boolean;
   customerName: string;
   phone: string;
@@ -123,6 +131,7 @@ export type StoredOrder = {
 type OrderRow = {
   id: number;
   code: string;
+  status: string;
   is_test: number;
   customer_name: string;
   phone: string;
@@ -157,6 +166,7 @@ export function getOrderByCode(code: string): StoredOrder | null {
     .all(row.id) as ItemRow[];
   return {
     code: row.code,
+    status: isOrderStatus(row.status) ? row.status : "cho_xac_nhan",
     isTest: row.is_test === 1,
     customerName: row.customer_name,
     phone: row.phone,
