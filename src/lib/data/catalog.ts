@@ -34,6 +34,10 @@ type CategoryRow = {
   attributes_json: string;
   sort_order: number;
   is_visible: number;
+  seo_title: string | null;
+  seo_description: string | null;
+  public_updated_at: string | null;
+  body: string;
 };
 
 type ProductRow = {
@@ -54,7 +58,11 @@ type ProductRow = {
   placeholder_tone: string;
   placeholder_icon: string;
   is_visible: number;
+  source: string | null;
   created_at: string;
+  seo_title: string | null;
+  seo_description: string | null;
+  public_updated_at: string | null;
 };
 
 type VariantRow = {
@@ -67,7 +75,7 @@ type VariantRow = {
   stock: number;
 };
 
-type ImageRow = { product_id: string; file_name: string; width: number; height: number };
+type ImageRow = { product_id: string; file_name: string; width: number; height: number; alt: string | null };
 
 const parse = <T>(json: string, fallback: T): T => {
   try {
@@ -114,6 +122,10 @@ const loadCatalog = cache(async (): Promise<Catalog> => {
     icon: c.icon as IconKey,
     parent: c.parent_id ? byId.get(c.parent_id)?.slug : undefined,
     attributes: parse<AttributeDef[]>(c.attributes_json, []),
+    body: c.body ?? "",
+    seoTitle: c.seo_title ?? "",
+    seoDescription: c.seo_description ?? "",
+    publicUpdatedAt: c.public_updated_at,
   }));
 
   const descendants = new Map<string, Set<string>>();
@@ -143,7 +155,7 @@ const loadCatalog = cache(async (): Promise<Catalog> => {
     .all() as VariantRow[];
   const imageRows = db
     .prepare(
-      `SELECT product_id, file_name, width, height FROM product_images
+      `SELECT product_id, file_name, width, height, alt FROM product_images
        WHERE product_id IS NOT NULL ORDER BY is_primary DESC, position, id`,
     )
     .all() as ImageRow[];
@@ -164,7 +176,7 @@ const loadCatalog = cache(async (): Promise<Catalog> => {
   const photosByProduct = new Map<string, ProductPhoto[]>();
   for (const img of imageRows) {
     const list = photosByProduct.get(img.product_id) ?? [];
-    list.push({ url: imageUrl(img.file_name), width: img.width, height: img.height });
+    list.push({ url: imageUrl(img.file_name), width: img.width, height: img.height, alt: img.alt ?? undefined });
     photosByProduct.set(img.product_id, list);
   }
 
@@ -197,6 +209,9 @@ const loadCatalog = cache(async (): Promise<Catalog> => {
       image: { tone: p.placeholder_tone as Tone, icon: p.placeholder_icon as IconKey, url: photos[0]?.url },
       photos,
       createdAt: p.created_at,
+      seoTitle: p.seo_title ?? "",
+      seoDescription: p.seo_description ?? "",
+      publicUpdatedAt: p.public_updated_at,
     });
   }
 
@@ -254,26 +269,12 @@ export async function getProductsByCategory(slug: string): Promise<Product[]> {
   return products.filter((p) => slugs.has(p.category));
 }
 
-export async function getFeaturedProducts(limit = 8): Promise<Product[]> {
-  const { products } = await loadCatalog();
-  const featured = products.filter((p) => p.tags?.includes("noi-bat"));
-  // Chưa đủ sản phẩm nổi bật thì bổ sung sản phẩm bán chạy.
-  const rest = products.filter((p) => !featured.includes(p)).sort((a, b) => b.sold - a.sold);
-  return [...featured, ...rest].slice(0, limit);
-}
 
 export async function getNewestProducts(limit = 8): Promise<Product[]> {
   return [...(await loadCatalog()).products].sort(byNewest).slice(0, limit);
 }
 
 /** Sản phẩm giảm giá sâu nhất. */
-export async function getTopDiscountProducts(limit = 8): Promise<Product[]> {
-  const ratio = (p: Product) => (p.originalPrice ? (p.originalPrice - p.price) / p.originalPrice : 0);
-  return (await loadCatalog()).products
-    .filter((p) => ratio(p) > 0)
-    .sort((a, b) => ratio(b) - ratio(a))
-    .slice(0, limit);
-}
 
 /** Sản phẩm cùng danh mục, ưu tiên cùng danh mục con rồi đến cùng ngành. */
 export async function getRelatedProducts(product: Product, limit = 4): Promise<Product[]> {

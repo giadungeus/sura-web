@@ -8,8 +8,10 @@ import { ProductGridSkeleton } from "@/components/product/product-card";
 import { getRootCategories, searchProducts } from "@/lib/data/catalog";
 import { parseListingParams, type SearchParamsRecord } from "@/lib/listing";
 
+// Kết quả tìm kiếm nội bộ: không lập chỉ mục (vẫn cho đi theo liên kết sản phẩm).
 export const metadata: Metadata = {
   title: "Tìm kiếm",
+  robots: { index: false, follow: true },
 };
 
 const SUGGESTIONS = ["điện thoại", "laptop", "áo sơ mi", "nồi chiên", "son", "balo"];

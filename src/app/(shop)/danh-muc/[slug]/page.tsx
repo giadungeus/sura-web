@@ -5,24 +5,39 @@ import { notFound } from "next/navigation";
 import { CategoryIcon } from "@/components/icons";
 import { ProductListing } from "@/components/listing/product-listing";
 import { ProductGridSkeleton } from "@/components/product/product-card";
+import { JsonLd } from "@/components/seo/json-ld";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { RichText } from "@/components/content/rich-text";
+import { getSiteChrome, getSiteSettings } from "@/lib/server/site-content";
+import { breadcrumbLd, pageMetadata } from "@/lib/seo";
+import { resolveSeo } from "@/lib/seo-text";
 import {
   getCategoryBySlug,
   getCategoryTrail,
   getChildCategories,
   getProductsByCategory,
 } from "@/lib/data/catalog";
-import { parseListingParams, type SearchParamsRecord } from "@/lib/listing";
+import { listingUrlState, parseListingParams, type SearchParamsRecord } from "@/lib/listing";
 
 // Không dùng generateStaticParams: danh mục đọc từ CSDL lúc có yêu cầu.
 
-export async function generateMetadata({
-  params,
-}: PageProps<"/danh-muc/[slug]">): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: PageProps<"/danh-muc/[slug]">): Promise<Metadata> {
   const { slug } = await params;
   const category = await getCategoryBySlug(slug);
   if (!category) return { title: "Không tìm thấy danh mục" };
-  return { title: category.name, description: category.description };
+  const [products, query, { brandName }] = await Promise.all([getProductsByCategory(slug), searchParams, getSiteSettings()]);
+  const state = listingUrlState(query, products);
+  if (!state.valid) return { title: "Không tìm thấy trang", robots: { index: false, follow: false } };
+  const { title, description } = resolveSeo(category, { name: category.name, description: category.description }, brandName);
+  return pageMetadata({
+    // Trang lọc/sắp xếp: không canonical, không lập chỉ mục. Trang phân trang: canonical là chính nó.
+    path: state.filtered ? null : state.page > 1 ? `/danh-muc/${category.slug}?trang=${state.page}` : `/danh-muc/${category.slug}`,
+    title,
+    description,
+    brand: brandName,
+    // Danh mục chưa có sản phẩm: không lập chỉ mục (theo hướng dẫn của Google).
+    noindex: state.filtered || products.length === 0,
+  });
 }
 
 type Props = PageProps<"/danh-muc/[slug]">;
@@ -67,6 +82,7 @@ async function CategoryContent({ params, searchParams }: Props) {
 
   return (
     <>
+      <JsonLd data={breadcrumbLd(trail.map((c) => ({ name: c.name, path: `/danh-muc/${c.slug}` })))} />
       <Breadcrumb
         items={trail.map((c, i) => ({
           label: c.name,
@@ -126,12 +142,25 @@ async function CategoryProducts({
   slug: string;
   searchParams: Promise<SearchParamsRecord>;
 }) {
-  const [products, query] = await Promise.all([getProductsByCategory(slug), searchParams]);
+  const [products, query, category] = await Promise.all([getProductsByCategory(slug), searchParams, getCategoryBySlug(slug)]);
+  // Tham số lọc/trang không hợp lệ (vd. thương hiệu lạ, trang vượt số trang) → không tìm thấy.
+  const state = listingUrlState(query, products);
+  if (!state.valid) notFound();
+  // Nội dung chi tiết: dưới danh sách và phân trang, chỉ ở trang đầu không lọc/sắp xếp; trống thì không hiện.
+  const body = !state.filtered && state.page === 1 ? (category?.body ?? "").trim() : "";
+  const chrome = body ? await getSiteChrome() : null;
   return (
-    <ProductListing
-      products={products}
-      params={parseListingParams(query)}
-      basePath={`/danh-muc/${slug}`}
-    />
+    <>
+      <ProductListing
+        products={products}
+        params={parseListingParams(query)}
+        basePath={`/danh-muc/${slug}`}
+      />
+      {body && chrome && (
+        <section aria-label={`Giới thiệu ${category?.name ?? ""}`} className="border-t border-neutral-200 pt-8">
+          <RichText source={body} vars={chrome.vars} hiddenPaths={chrome.hiddenPaths} />
+        </section>
+      )}
+    </>
   );
 }

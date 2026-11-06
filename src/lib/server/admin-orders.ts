@@ -1,10 +1,12 @@
 import "server-only";
 import type { DatabaseSync } from "node:sqlite";
+import { syncProductPublic } from "@/lib/server/public-state";
 import { normalizePhone } from "@/lib/checkout/customer";
 import {
   CANCEL_REASON_LIMITS,
   INTERNAL_NOTE_MAX,
   ORDER_STATUSES,
+  PENDING_STATUSES,
   STATUS_LABELS,
   canTransition,
   isOrderStatus,
@@ -114,6 +116,15 @@ export function countOrdersByStatus(q?: string): Record<OrderStatus | "all", num
     counts.all += row.n;
   }
   return counts;
+}
+
+/** “Đơn chờ xử lý” (Chờ xác nhận + Đã xác nhận + Đang giao), không phụ thuộc bộ lọc. */
+export function countPendingOrders(): number {
+  return (
+    getDb()
+      .prepare(`SELECT COUNT(*) AS n FROM orders WHERE status IN (${PENDING_STATUSES.map(() => "?").join(", ")})`)
+      .get(...PENDING_STATUSES) as { n: number }
+  ).n;
 }
 
 // ───────────── Chi tiết ─────────────
@@ -285,6 +296,7 @@ function restoreStock(db: DatabaseSync, orderId: number, now: string): number {
     restored += addStock.run(item.quantity, item.variant_id).changes ? item.quantity : 0;
     subSold.run(item.quantity, item.product_id);
   }
+  syncProductPublic(db, items.map((i) => i.product_id), now);
   return restored;
 }
 

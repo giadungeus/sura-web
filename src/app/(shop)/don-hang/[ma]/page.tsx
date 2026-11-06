@@ -2,11 +2,12 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { Banknote, CheckCircle2, FlaskConical, LockKeyhole, MapPin } from "lucide-react";
+import { Banknote, CheckCircle2, LockKeyhole, MapPin } from "lucide-react";
 import { ProductImage } from "@/components/product/product-image";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { siteConfig } from "@/config/site";
 import { formatVND } from "@/lib/format";
+import { getSiteSettings } from "@/lib/server/site-content";
 import {
   ORDER_ACCESS_COOKIE_PREFIX,
   ORDER_CODE_PATTERN,
@@ -55,7 +56,7 @@ async function OrderContent({ params }: Pick<Props, "params">) {
   }
 
   if (!order) return <OrderUnavailable />;
-  return <OrderDetail order={order} />;
+  return <OrderDetail order={order} brandName={(await getSiteSettings()).brandName} />;
 }
 
 function OrderUnavailable() {
@@ -88,7 +89,7 @@ const dateFormatter = new Intl.DateTimeFormat("vi-VN", {
   year: "numeric",
 });
 
-function OrderDetail({ order }: { order: StoredOrder }) {
+function OrderDetail({ order, brandName }: { order: StoredOrder; brandName: string }) {
   const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
   return (
     <div className="space-y-6">
@@ -109,14 +110,14 @@ function OrderDetail({ order }: { order: StoredOrder }) {
         </p>
       </div>
 
-      {order.isTest && (
-        <div role="note" className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <FlaskConical className="mt-0.5 size-5 shrink-0" aria-hidden />
+      {order.status === "cho_xac_nhan" && (
+        <div role="note" className="flex gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <CheckCircle2 className="mt-0.5 size-5 shrink-0" aria-hidden />
           <div>
-            <p className="font-semibold">Đây là đơn hàng thử nghiệm</p>
+            <p className="font-semibold">Cảm ơn bạn đã đặt hàng</p>
             <p className="mt-0.5">
-              Đơn chỉ được lưu để kiểm tra hệ thống, <strong>chưa được chuyển cho bên giao hàng</strong> và
-              không phát sinh thanh toán.
+              Đơn đang chờ xác nhận. {brandName} có thể liên hệ qua số điện thoại bạn cung
+              cấp để xác nhận đơn. Bạn thanh toán khi nhận hàng (COD).
             </p>
           </div>
         </div>

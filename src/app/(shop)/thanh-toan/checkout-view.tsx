@@ -27,7 +27,7 @@ const FIELD_LABELS: Record<CustomerField, string> = {
 };
 const fieldId = (field: CustomerField) => `checkout-${field}`;
 
-export function CheckoutView() {
+export function CheckoutView({ brandName }: { brandName: string }) {
   const router = useRouter();
   const hydrated = useCartStore((s) => s.hasHydrated);
   const items = useCartStore((s) => s.items);
@@ -459,9 +459,9 @@ export function CheckoutView() {
           </button>
         </section>
 
-        <p className="rounded-xl bg-neutral-50 p-3 text-xs leading-5 text-neutral-500">
-          Đây là bản thử nghiệm: đơn hàng được lưu để kiểm tra, <strong>chưa chuyển cho bên giao hàng</strong> và
-          không phát sinh thanh toán.
+        <p data-checkout-note className="rounded-xl bg-neutral-50 p-3 text-xs leading-5 text-neutral-600">
+          Sau khi đặt, đơn ở trạng thái <strong>Chờ xác nhận</strong>. {brandName} có thể liên hệ qua số điện thoại bạn
+          cung cấp để xác nhận đơn. Bạn thanh toán khi nhận hàng (COD).
         </p>
       </aside>
 

@@ -1,7 +1,8 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { Menu, Store } from "lucide-react";
-import { siteConfig } from "@/config/site";
+import { DEFAULT_SETTINGS } from "@/lib/content/settings";
+import { getSiteChrome } from "@/lib/server/site-content";
 import { getCategories } from "@/lib/data/catalog";
 import { CartButton } from "./cart-button";
 import { MobileMenu, type MenuGroup } from "./mobile-menu";
@@ -25,7 +26,9 @@ export function Header() {
             <span className="flex size-8 items-center justify-center rounded-lg bg-neutral-900 text-white">
               <Store className="size-4.5" aria-hidden />
             </span>
-            <span className="text-lg">{siteConfig.name}</span>
+            <Suspense fallback={<span className="text-lg">{DEFAULT_SETTINGS.brandName}</span>}>
+              <BrandName />
+            </Suspense>
           </Link>
           <SearchForm className="mx-auto hidden w-full max-w-xl md:block" />
           <div className="ml-auto md:ml-0">
@@ -51,14 +54,20 @@ function MenuButtonPlaceholder() {
   );
 }
 
+async function BrandName() {
+  const { settings } = await getSiteChrome();
+  return <span className="text-lg">{settings.brandName}</span>;
+}
+
 async function MobileMenuLoader() {
-  return <MobileMenu groups={await getMenuGroups()} />;
+  const [groups, { nav }] = await Promise.all([getMenuGroups(), getSiteChrome()]);
+  return <MobileMenu groups={groups} links={[...nav.about, ...nav.support.filter((l) => !l.href.includes("#"))]} />;
 }
 
 async function CategoryNav() {
-  const groups = await getMenuGroups();
+  const [groups, { nav }] = await Promise.all([getMenuGroups(), getSiteChrome()]);
   return (
-    <nav aria-label="Ngành hàng" className="hidden lg:block">
+    <nav aria-label="Menu chính" className="hidden lg:block">
       <ul className="-mx-3 flex gap-1 pb-2 text-sm">
         {groups.map(({ root }) => (
           <li key={root.slug}>
@@ -67,6 +76,14 @@ async function CategoryNav() {
               className="block rounded-full px-3 py-1.5 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
             >
               {root.name}
+            </Link>
+          </li>
+        ))}
+        <li className="ml-auto" aria-hidden />
+        {nav.about.map((l) => (
+          <li key={l.href}>
+            <Link href={l.href} className="block rounded-full px-3 py-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900">
+              {l.label}
             </Link>
           </li>
         ))}

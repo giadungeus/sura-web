@@ -9,7 +9,9 @@ import type { Category } from "@/types";
 
 export type MenuGroup = { root: Category; children: Category[] };
 
-export function MobileMenu({ groups }: { groups: MenuGroup[] }) {
+export type MenuLink = { href: string; label: string };
+
+export function MobileMenu({ groups, links }: { groups: MenuGroup[]; links: MenuLink[] }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -25,12 +27,12 @@ export function MobileMenu({ groups }: { groups: MenuGroup[] }) {
       </button>
 
       {/* Portal ra body: header dùng backdrop-blur nên `fixed` bên trong sẽ bị giới hạn theo header. */}
-      {open && createPortal(<MenuDrawer groups={groups} onClose={() => setOpen(false)} />, document.body)}
+      {open && createPortal(<MenuDrawer groups={groups} links={links} onClose={() => setOpen(false)} />, document.body)}
     </>
   );
 }
 
-function MenuDrawer({ groups, onClose }: { groups: MenuGroup[]; onClose: () => void }) {
+function MenuDrawer({ groups, links, onClose }: { groups: MenuGroup[]; links: MenuLink[]; onClose: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", onKey);
@@ -81,6 +83,18 @@ function MenuDrawer({ groups, onClose }: { groups: MenuGroup[]; onClose: () => v
               </div>
             </div>
           ))}
+          <div className="mt-2 border-t border-neutral-200 pt-2">
+            {links.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                onClick={onClose}
+                className="block rounded-lg px-3 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50"
+              >
+                {l.label}
+              </Link>
+            ))}
+          </div>
         </nav>
       </div>
     </div>

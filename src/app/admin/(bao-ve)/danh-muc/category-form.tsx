@@ -4,7 +4,7 @@ import { useActionState, useState } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { Field, Notice, inputClass } from "@/components/admin/form-ui";
-import { CategoryIcon, ICON_KEYS } from "@/components/icons";
+import { IconPicker } from "@/components/admin/icon-picker";
 import { slugify } from "@/lib/slug";
 import type { IconKey } from "@/types";
 import { saveCategoryAction, type FormState } from "../../catalog-actions";
@@ -18,6 +18,8 @@ export type CategoryFormValues = {
   parentId: number | null;
   sortOrder: number;
   isVisible: boolean;
+  /** Từng công khai → khoá slug. */
+  everPublic: boolean;
 };
 
 export function CategoryForm({
@@ -38,6 +40,7 @@ export function CategoryForm({
   const [sortOrder, setSortOrder] = useState(String(initial.sortOrder));
   const [description, setDescription] = useState(initial.description);
   const [isVisible, setIsVisible] = useState(initial.isVisible);
+  const slugLocked = initial.id !== null && initial.everPublic;
   const e = state.fieldErrors ?? {};
 
   return (
@@ -54,7 +57,7 @@ export function CategoryForm({
             maxLength={80}
             onChange={(ev) => {
               setName(ev.target.value);
-              if (!slugTouched) setSlug(slugify(ev.target.value));
+              if (!slugTouched && !slugLocked) setSlug(slugify(ev.target.value));
             }}
             className={inputClass(e.name)}
             aria-invalid={e.name ? true : undefined}
@@ -65,12 +68,17 @@ export function CategoryForm({
           label="Slug (đường dẫn)"
           required
           error={e.slug}
-          hint={`Hiển thị tại /danh-muc/${slug || "…"}. Chữ thường không dấu, số, dấu gạch ngang.`}
+          hint={
+            slugLocked
+              ? `Đã khoá vì danh mục từng công khai — đổi slug sẽ làm hỏng đường dẫn /danh-muc/${slug} đang có.`
+              : `Hiển thị tại /danh-muc/${slug || "…"}. Chữ thường không dấu, số, dấu gạch ngang.`
+          }
         >
           <input
             id="cat-slug"
             name="slug"
             value={slug}
+            readOnly={slugLocked}
             maxLength={80}
             onChange={(ev) => {
               setSlugTouched(true);
@@ -110,36 +118,24 @@ export function CategoryForm({
             />
           </Field>
         </div>
-        <Field id="cat-desc" label="Mô tả ngắn" error={e.description}>
-          <input
-            id="cat-desc"
-            name="description"
-            value={description}
-            onChange={(ev) => setDescription(ev.target.value)}
-            maxLength={300}
-            className={inputClass(e.description)}
-          />
-        </Field>
-        <fieldset>
-          <legend className="mb-1.5 text-sm font-medium">Biểu tượng</legend>
-          <input type="hidden" name="icon" value={icon} />
-          <div className="flex flex-wrap gap-2">
-            {ICON_KEYS.map((key) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setIcon(key)}
-                aria-pressed={icon === key}
-                aria-label={key}
-                className={`flex size-10 items-center justify-center rounded-xl border ${
-                  icon === key ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-200 text-neutral-600 hover:border-neutral-400"
-                }`}
-              >
-                <CategoryIcon icon={key} className="size-5" />
-              </button>
-            ))}
-          </div>
-        </fieldset>
+        {initial.id === null ? (
+          <Field id="cat-desc" label="Mô tả ngắn" error={e.description}>
+            <input
+              id="cat-desc"
+              name="description"
+              value={description}
+              onChange={(ev) => setDescription(ev.target.value)}
+              maxLength={300}
+              className={inputClass(e.description)}
+            />
+          </Field>
+        ) : (
+          <p className="rounded-xl bg-neutral-50 p-3 text-sm text-neutral-600">
+            Mô tả ngắn, nội dung chi tiết và SEO sửa ở khối <b>Nội dung &amp; SEO</b> bên dưới (có Lưu nháp/Công khai). Lưu thông tin ở đây không
+            thay đổi các phần đó.
+          </p>
+        )}
+        <IconPicker name="icon" value={icon} onChange={setIcon} error={e.icon} />
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" name="isVisible" value="1" checked={isVisible} onChange={(ev) => setIsVisible(ev.target.checked)} className="size-4 accent-neutral-900" />
           Hiển thị trên cửa hàng

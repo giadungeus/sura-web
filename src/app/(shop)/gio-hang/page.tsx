@@ -3,6 +3,7 @@ import { CartView } from "./cart-view";
 
 export const metadata: Metadata = {
   title: "Giỏ hàng",
+  robots: { index: false, follow: true },
 };
 
 export default function CartPage() {

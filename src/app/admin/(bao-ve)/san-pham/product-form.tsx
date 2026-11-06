@@ -5,7 +5,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, ImagePlus, Loader2, Plus, Star, Trash, Wand2, X } from "lucide-react";
 import { ErrorText, Field, Notice, inputClass } from "@/components/admin/form-ui";
+import { MarkupEditor } from "@/components/admin/markup-editor";
 import { skuFromText, slugify } from "@/lib/slug";
+import { SeoFields } from "@/components/admin/seo-fields";
+import { clipText, defaultTitle, markupToPlainText } from "@/lib/seo-text";
 import type { SelectedOptions } from "@/types";
 import { saveProductAction, uploadProductImageAction, type FormState } from "../../catalog-actions";
 
@@ -40,6 +43,10 @@ export type ProductFormValues = {
   images: ImageItem[];
   primaryImageId: number | null;
   orderCount: number;
+  seoTitle: string;
+  seoDescription: string;
+  /** Từng công khai → khoá slug (chưa có quản lý chuyển hướng). */
+  everPublic: boolean;
 };
 
 let uidCounter = 0;
@@ -50,9 +57,14 @@ const groupThousands = (v: string) => (v ? Number(v).toLocaleString("vi-VN") : "
 export function ProductForm({
   initial,
   categories,
+  vars,
+  hiddenPaths,
 }: {
   initial: ProductFormValues;
   categories: { id: number; name: string; depth: number }[];
+  /** Cho phần Xem trước của trình soạn bài mô tả. */
+  vars: Record<string, string>;
+  hiddenPaths: string[];
 }) {
   const [state, action, pending] = useActionState<FormState, FormData>(saveProductAction, {});
   const e = state.fieldErrors ?? {};
@@ -66,6 +78,8 @@ export function ProductForm({
   const [description, setDescription] = useState(initial.description);
   const [highlights, setHighlights] = useState(initial.highlights.join("\n"));
   const [isVisible, setIsVisible] = useState(initial.isVisible);
+  const [seo, setSeo] = useState({ seoTitle: initial.seoTitle, seoDescription: initial.seoDescription });
+  const slugLocked = initial.id !== null && initial.everPublic;
 
   const [hasVariants, setHasVariants] = useState(initial.optionNames.length > 0);
   const [optionNames, setOptionNames] = useState<string[]>(initial.optionNames.length ? initial.optionNames : ["Màu sắc"]);
@@ -229,6 +243,8 @@ export function ProductForm({
     })),
     imageIds: images.map((i) => i.id),
     primaryImageId: primaryId,
+    seoTitle: seo.seoTitle,
+    seoDescription: seo.seoDescription,
   });
 
   const variantErrors = Object.entries(e).filter(([k]) => k.startsWith("variants."));
@@ -256,16 +272,27 @@ export function ProductForm({
             maxLength={150}
             onChange={(ev) => {
               setName(ev.target.value);
-              if (!slugTouched) setSlug(slugify(ev.target.value));
+              if (!slugTouched && !slugLocked) setSlug(slugify(ev.target.value));
             }}
             className={inputClass(e.name)}
             aria-invalid={e.name ? true : undefined}
           />
         </Field>
-        <Field id="p-slug" label="Slug (đường dẫn)" required error={e.slug} hint={`Hiển thị tại /san-pham/${slug || "…"}`}>
+        <Field
+          id="p-slug"
+          label="Slug (đường dẫn)"
+          required
+          error={e.slug}
+          hint={
+            slugLocked
+              ? `Đã khoá vì sản phẩm từng công khai — đổi slug sẽ làm hỏng đường dẫn /san-pham/${slug} đang có.`
+              : `Hiển thị tại /san-pham/${slug || "…"}`
+          }
+        >
           <input
             id="p-slug"
             value={slug}
+            readOnly={slugLocked}
             maxLength={80}
             onChange={(ev) => {
               setSlugTouched(true);
@@ -306,21 +333,23 @@ export function ProductForm({
             className={inputClass(e.shortDescription)}
           />
         </Field>
-        <Field
-          id="p-desc"
-          label="Mô tả chi tiết"
-          error={e.description}
-          hint="Văn bản thuần, xuống dòng được giữ nguyên. Mã HTML/JavaScript sẽ hiển thị như chữ, không được thực thi."
-        >
-          <textarea
+        <div className="space-y-1.5">
+          <label htmlFor="p-desc" className="block text-sm font-medium">
+            Bài mô tả sản phẩm
+          </label>
+          <MarkupEditor
             id="p-desc"
-            rows={6}
+            name="description_editor"
             value={description}
-            maxLength={5000}
-            onChange={(ev) => setDescription(ev.target.value)}
-            className={inputClass(e.description)}
+            onChange={setDescription}
+            vars={vars}
+            hiddenPaths={hiddenPaths}
+            error={e.description}
+            rows={12}
           />
-        </Field>
+          <p className="text-xs text-neutral-500">Tối đa 20.000 ký tự. Hỗ trợ tiêu đề mục, danh sách, bảng, ảnh; không nhận mã HTML.</p>
+          {e.description && <ErrorText>{e.description}</ErrorText>}
+        </div>
         <Field id="p-highlights" label="Điểm nổi bật" error={e.highlights} hint="Mỗi dòng một ý, tối đa 10 dòng.">
           <textarea
             id="p-highlights"
@@ -335,6 +364,16 @@ export function ProductForm({
           Hiển thị trên cửa hàng (bỏ chọn để ẩn; sản phẩm ẩn không thể đặt mua)
         </label>
       </section>
+
+      <SeoFields
+        idPrefix="p"
+        initial={seo}
+        onChange={setSeo}
+        errors={e}
+        path={`/san-pham/${slug || "…"}`}
+        defaultTitle={defaultTitle(name || "Tên sản phẩm", vars.thuong_hieu ?? "")}
+        defaultDescription={shortDescription.trim() || clipText(markupToPlainText(description))}
+      />
 
       {/* ───── Ảnh ───── */}
       <section className="space-y-3 rounded-2xl border border-neutral-200 bg-white p-4 sm:p-5">

@@ -1,0 +1,44 @@
+{
+  "dinh_dang": "sura-goi-noi-dung",
+  "phien_ban": 1,
+  "ten_goi": "(MẪU) Gói tham khảo định dạng — không nhập lên website thật",
+  "nguoi_soan": "Mimi",
+  "ngay_soan": "2026-11-01",
+  "muc": [
+    {
+      "loai": "san_pham",
+      "nguon": "mau",
+      "ma_san_pham": "MAU-PB-10K",
+      "mo_ta_ngan": "Sạc dự phòng 10000mAh mẫu: sạc nhanh 20W, màn hình LED báo pin.",
+      "seo_title": "(MẪU) Sạc dự phòng 10000mAh sạc nhanh 20W",
+      "seo_description": "",
+      "bai_viet": "bai/sac-du-phong-mau.md",
+      "anh_dai_dien": { "tep": "anh/sac-du-phong-dai-dien.jpg", "alt": "Sạc dự phòng 10000mAh mẫu đặt trên bàn" },
+      "anh_san_pham": [
+        { "tep": "anh/sac-du-phong-cong-sac.jpg", "alt": "Các cổng sạc ở cạnh sạc dự phòng mẫu" }
+      ]
+    },
+    {
+      "loai": "tin_tuc",
+      "slug": "mau-cach-doc-thong-so-cap-sac",
+      "tieu_de": "(MẪU) Cách đọc thông số cáp sạc",
+      "mo_ta_ngan": "Bài mẫu minh hoạ định dạng gói nội dung: tiêu đề mục, bảng, danh sách và ảnh có chú thích.",
+      "seo_description": "(MẪU) Cách đọc công suất, chuẩn sạc và độ dài trên thông số cáp sạc trước khi mua.",
+      "bai_viet": "bai/tin-doc-thong-so-cap.md",
+      "anh_dai_dien": { "tep": "anh/tin-anh-bia.jpg", "alt": "Ảnh bìa minh hoạ bài viết về cáp sạc" }
+    },
+    {
+      "loai": "trang",
+      "slug": "huong-dan-mua-hang",
+      "tieu_de": "(MẪU) Hướng dẫn mua hàng",
+      "bai_viet": "bai/trang-huong-dan-mau.md"
+    },
+    {
+      "loai": "danh_muc",
+      "slug": "dien-tu",
+      "mo_ta_ngan": "(MẪU) Mô tả ngắn hiện dưới tên danh mục.",
+      "bai_viet": "bai/danh-muc-mau.md",
+      "seo_title": "(MẪU) Điện tử chính hãng | Sura"
+    }
+  ]
+}

@@ -29,6 +29,10 @@ export const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
 /** Chỉ được huỷ trước khi giao. */
 export const CANCELLABLE: ReadonlySet<OrderStatus> = new Set(["cho_xac_nhan", "da_xac_nhan"]);
 
+/** “Đơn chờ xử lý” = các đơn chưa hoàn thành và chưa huỷ. */
+export const PENDING_STATUSES = ["cho_xac_nhan", "da_xac_nhan", "dang_giao"] as const satisfies readonly OrderStatus[];
+export const PENDING_DESCRIPTION = "Chờ xác nhận, Đã xác nhận, Đang giao";
+
 export const CANCEL_REASON_LIMITS = { min: 5, max: 500 } as const;
 export const INTERNAL_NOTE_MAX = 1000;
 

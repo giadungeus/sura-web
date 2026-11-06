@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { requireAdmin } from "@/lib/server/admin-auth";
+import { getPreviewContext } from "@/lib/server/site-content";
 import { listAdminCategories } from "@/lib/server/admin-catalog";
 import { ProductForm } from "../product-form";
 
@@ -25,9 +26,12 @@ export default function NewProductPage() {
 async function Content() {
   await requireAdmin("/admin/san-pham/moi");
   const categories = listAdminCategories().map((c) => ({ id: c.id, name: c.name, depth: c.depth }));
+  const { vars, hiddenPaths } = getPreviewContext();
   return (
     <ProductForm
       categories={categories}
+      vars={vars}
+      hiddenPaths={hiddenPaths}
       initial={{
         id: null,
         name: "",
@@ -43,6 +47,9 @@ async function Content() {
         images: [],
         primaryImageId: null,
         orderCount: 0,
+        seoTitle: "",
+        seoDescription: "",
+        everPublic: false,
       }}
     />
   );

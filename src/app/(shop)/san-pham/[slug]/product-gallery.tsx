@@ -13,7 +13,7 @@ export function ProductGallery({ photos, name }: { photos: ProductPhoto[]; name:
       <div className="relative aspect-square overflow-hidden rounded-3xl bg-neutral-50">
         <Image
           src={current.url}
-          alt={name}
+          alt={current.alt || name}
           fill
           unoptimized
           priority

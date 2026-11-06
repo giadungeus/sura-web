@@ -3,7 +3,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Store } from "lucide-react";
+import { DEFAULT_SETTINGS } from "@/lib/content/settings";
 import { getAdminSession, hasAnyAdmin, safeAdminReturnPath } from "@/lib/server/admin-auth";
+import { getSiteSettings } from "@/lib/server/site-content";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: "Đăng nhập" };
@@ -16,7 +18,9 @@ export default function AdminLoginPage({ searchParams }: PageProps<"/admin/dang-
           <span className="flex size-9 items-center justify-center rounded-lg bg-neutral-900 text-white">
             <Store className="size-5" aria-hidden />
           </span>
-          <span className="text-lg">Shop Online</span>
+          <Suspense fallback={<span className="text-lg">{DEFAULT_SETTINGS.brandName}</span>}>
+            <LoginBrand />
+          </Suspense>
         </Link>
         <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
           <h1 className="text-xl font-bold tracking-tight">Đăng nhập quản trị</h1>
@@ -45,4 +49,9 @@ async function LoginContent({ searchParams }: { searchParams: Promise<Record<str
       : null;
 
   return <LoginForm next={next} notice={notice} noAdmin={!hasAnyAdmin()} />;
+}
+
+async function LoginBrand() {
+  const { brandName } = await getSiteSettings();
+  return <span className="text-lg">{brandName}</span>;
 }

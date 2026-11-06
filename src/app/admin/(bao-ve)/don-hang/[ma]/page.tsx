@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, FlaskConical, Lock, MapPin, Phone, SearchX } from "lucide-react";
+import { ArrowLeft, Lock, MapPin, Phone, SearchX } from "lucide-react";
 import { ProductImage } from "@/components/product/product-image";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { siteConfig } from "@/config/site";
@@ -70,11 +70,6 @@ function OrderDetail({ order }: { order: AdminOrderDetail }) {
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="font-mono text-xl font-bold tracking-tight sm:text-2xl">{order.code}</h1>
           <StatusBadge status={order.status} />
-          {order.isTest && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200 ring-inset">
-              <FlaskConical className="size-3.5" aria-hidden /> Đơn thử nghiệm
-            </span>
-          )}
         </div>
         <p className="text-xs text-neutral-500">
           {order.stockApplied

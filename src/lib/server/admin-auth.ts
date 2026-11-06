@@ -48,8 +48,8 @@ export async function startAdminSession(adminId: number): Promise<void> {
     value: token,
     httpOnly: true,
     sameSite: "strict",
-    // Bật `secure` khi chạy qua HTTPS (lúc triển khai thật).
-    secure: false,
+    // Chỉ gửi cookie qua HTTPS khi đặt SHOP_SECURE_COOKIES=1 (bật trên hosting https://sura.vn).
+    secure: process.env.SHOP_SECURE_COOKIES === "1",
     path: "/admin",
     expires: expiresAt,
   });

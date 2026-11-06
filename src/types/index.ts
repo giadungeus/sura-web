@@ -17,7 +17,49 @@ export type IconKey =
   | "car"
   | "dumbbell"
   | "luggage"
-  | "backpack";
+  | "backpack"
+  // Mở rộng (giữ nguyên 18 mã cũ ở trên)
+  | "tablet"
+  | "headphones"
+  | "speaker"
+  | "camera"
+  | "watch"
+  | "tv"
+  | "gamepad"
+  | "footprints"
+  | "glasses"
+  | "gem"
+  | "refrigerator"
+  | "washing-machine"
+  | "bed"
+  | "heart-pulse"
+  | "pill"
+  | "spray-can"
+  | "milk"
+  | "apple"
+  | "coffee"
+  | "utensils"
+  | "wine"
+  | "cake"
+  | "bike"
+  | "tent"
+  | "plane"
+  | "map"
+  | "fuel"
+  | "book-open"
+  | "pen"
+  | "graduation-cap"
+  | "paw-print"
+  | "dog"
+  | "cat"
+  | "fish"
+  | "wrench"
+  | "hammer"
+  | "drill"
+  | "flower"
+  | "sprout"
+  | "shovel"
+  | "gift";
 
 /** Tông màu nền cho ảnh minh họa sản phẩm. */
 export type Tone =
@@ -45,6 +87,12 @@ export type Category = {
   parent?: string;
   /** Thứ tự và nhãn các thông số hiển thị ở trang chi tiết. */
   attributes?: AttributeDef[];
+  /** Nội dung chi tiết đang công khai (định dạng nội dung; rỗng = không hiện). */
+  body?: string;
+  /** SEO tuỳ chọn (rỗng = mặc định) và thời điểm bản công khai thay đổi (null = chưa rõ). */
+  seoTitle?: string;
+  seoDescription?: string;
+  publicUpdatedAt?: string | null;
 };
 
 export type VariantOption = {
@@ -71,6 +119,8 @@ export type ProductPhoto = {
   url: string;
   width: number;
   height: number;
+  /** Văn bản thay thế; không có thì dùng tên sản phẩm. */
+  alt?: string;
 };
 
 /** Một phiên bản có thể mua: SKU, thuộc tính, giá và tồn kho riêng. */
@@ -113,6 +163,10 @@ export type Product = {
   image: ProductImage;
   photos: ProductPhoto[];
   createdAt: string;
+  /** SEO tuỳ chọn (rỗng = mặc định) và thời điểm bản công khai thay đổi (null = chưa rõ). */
+  seoTitle?: string;
+  seoDescription?: string;
+  publicUpdatedAt?: string | null;
 };
 
 /** Định dạng dữ liệu mẫu ban đầu (src/data/products.ts), chỉ dùng cho bước nhập vào CSDL. */

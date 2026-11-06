@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
   experimental: {
     // Ảnh tải lên từng tệp một qua Server Action (tối đa 5 MB/ảnh + phần đầu multipart).
     serverActions: { bodySizeLimit: "6mb" },
+    // Build chỉ dùng 1 worker: hosting cPanel báo nhiều CPU (34) nhưng giới hạn RAM thấp,
+    // build mặc định bị dừng với mã 137 (hết bộ nhớ). Build chậm hơn trên máy nhưng ổn định trên hosting.
+    cpus: 1,
   },
   async headers() {
     // Trang quản trị: không cho nhúng iframe (chống clickjacking), không lưu cache, không lập chỉ mục.
@@ -22,14 +25,7 @@ const nextConfig: NextConfig = {
       { source: "/admin/:path*", headers: adminHeaders },
     ];
   },
-  turbopack: {
-    rules: {
-      "*.css": {
-        loaders: ["@tailwindcss/turbopack"],
-        as: "*.css",
-      },
-    },
-  },
+  // Tailwind được xử lý qua postcss.config.mjs (dùng chung cho Turbopack và webpack).
 };
 
 export default nextConfig;

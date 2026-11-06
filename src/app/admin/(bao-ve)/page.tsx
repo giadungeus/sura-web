@@ -5,9 +5,9 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, ChevronRight as Arrow, Inbox, Search } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDateTime, formatVND } from "@/lib/format";
-import { ORDER_STATUSES, STATUS_LABELS, isOrderStatus, type OrderStatus } from "@/lib/order-status";
+import { ORDER_STATUSES, PENDING_DESCRIPTION, STATUS_LABELS, isOrderStatus, type OrderStatus } from "@/lib/order-status";
 import { requireAdmin } from "@/lib/server/admin-auth";
-import { countOrdersByStatus, listAdminOrders } from "@/lib/server/admin-orders";
+import { countOrdersByStatus, countPendingOrders, listAdminOrders } from "@/lib/server/admin-orders";
 
 export const metadata: Metadata = { title: "Đơn hàng" };
 
@@ -51,8 +51,10 @@ async function OrdersContent({ searchParams }: { searchParams: Promise<SearchPar
 
   await requireAdmin(buildHref({ q, status, page: pageRaw }));
 
+  // Danh sách, phân trang và số đếm trên nút lọc dùng cùng điều kiện lọc.
   const result = listAdminOrders({ q, status, page: Number.isFinite(pageRaw) ? pageRaw : 1 });
   const counts = countOrdersByStatus(q);
+  const pending = countPendingOrders();
 
   return (
     <div className="space-y-5">
@@ -64,6 +66,12 @@ async function OrdersContent({ searchParams }: { searchParams: Promise<SearchPar
           </p>
         </div>
       </div>
+
+      <section aria-label="Đơn chờ xử lý" className="max-w-xs rounded-2xl border border-neutral-200 bg-white p-3">
+        <p className="text-2xl font-bold text-neutral-900">{pending}</p>
+        <p className="text-sm font-medium text-neutral-700">Đơn chờ xử lý</p>
+        <p className="mt-1 text-xs text-neutral-500">Gồm các trạng thái: {PENDING_DESCRIPTION}.</p>
+      </section>
 
       <Form action="/admin" role="search" className="flex gap-2">
         {status && <input type="hidden" name="trang-thai" value={status} />}
@@ -90,6 +98,7 @@ async function OrdersContent({ searchParams }: { searchParams: Promise<SearchPar
           Tìm
         </button>
       </Form>
+
 
       <nav aria-label="Lọc theo trạng thái" className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
         <FilterChip href={buildHref({ q })} active={!status} label="Tất cả" count={counts.all} />

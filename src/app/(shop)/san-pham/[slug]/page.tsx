@@ -1,14 +1,18 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Check, RotateCcw, ShieldCheck, Star, Truck } from "lucide-react";
+import { Check, ShieldCheck, Truck } from "lucide-react";
+import { RichText } from "@/components/content/rich-text";
+import { JsonLd } from "@/components/seo/json-ld";
+import { getSiteChrome, getSiteSettings } from "@/lib/server/site-content";
+import { breadcrumbLd, pageMetadata, productLd } from "@/lib/seo";
+import { clipText, markupToPlainText, resolveSeo } from "@/lib/seo-text";
 import { ProductGrid } from "@/components/product/product-card";
 import { ProductImage } from "@/components/product/product-image";
 import { PurchasePanel } from "@/components/product/purchase-panel";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section } from "@/components/ui/section";
 import { siteConfig } from "@/config/site";
-import { formatNumber, formatSold } from "@/lib/format";
 import { getCategoryTrail, getProductBySlug, getRelatedProducts } from "@/lib/data/catalog";
 import { ProductGallery } from "./product-gallery";
 
@@ -21,7 +25,16 @@ export async function generateMetadata({
   const { slug } = await params;
   const product = await getProductBySlug(slug);
   if (!product) return { title: "Không tìm thấy sản phẩm" };
-  return { title: product.name, description: product.shortDescription };
+  const { brandName } = await getSiteSettings();
+  const { title, description } = resolveSeo(product, { name: product.name, description: product.shortDescription || product.description }, brandName);
+  const photo = product.photos[0];
+  return pageMetadata({
+    path: `/san-pham/${product.slug}`,
+    title,
+    description,
+    brand: brandName,
+    image: photo ? { url: photo.url, width: photo.width, height: photo.height, alt: photo.alt || product.name } : null,
+  });
 }
 
 type Props = PageProps<"/san-pham/[slug]">;
@@ -57,9 +70,10 @@ async function ProductContent({ params }: Pick<Props, "params">) {
   const product = await getProductBySlug(slug);
   if (!product) notFound();
 
-  const [trail, related] = await Promise.all([
+  const [trail, related, chrome] = await Promise.all([
     getCategoryTrail(product.category),
     getRelatedProducts(product, 4),
+    getSiteChrome(),
   ]);
   const leafCategory = trail.at(-1);
   // Thông số hiển thị theo thứ tự thuộc tính của danh mục.
@@ -67,8 +81,17 @@ async function ProductContent({ params }: Pick<Props, "params">) {
     .filter((attr) => product.specs[attr.key])
     .map((attr) => ({ label: attr.label, value: product.specs[attr.key] }));
 
+  // Dữ liệu có cấu trúc khớp nội dung đang hiển thị (mô tả ngắn, giá, còn/hết hàng).
+  const visibleDescription = product.shortDescription || clipText(markupToPlainText(product.description), 300);
   return (
     <div>
+      <JsonLd
+        data={breadcrumbLd([
+          ...trail.map((c) => ({ name: c.name, path: `/danh-muc/${c.slug}` })),
+          { name: product.name, path: `/san-pham/${product.slug}` },
+        ])}
+      />
+      <JsonLd data={productLd(product, visibleDescription)} />
       <div className="mx-auto max-w-6xl px-4 pt-4 sm:pt-6">
         <Breadcrumb
           items={[
@@ -92,15 +115,6 @@ async function ProductContent({ params }: Pick<Props, "params">) {
               <h1 className="text-2xl leading-tight font-bold tracking-tight sm:text-3xl">
                 {product.name}
               </h1>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-neutral-500">
-                <span className="flex items-center gap-1">
-                  <Star className="size-4 fill-amber-400 text-amber-400" aria-hidden />
-                  <span className="font-medium text-neutral-900">{product.rating.toFixed(1)}</span>
-                  <span>({formatNumber(product.reviewCount)} đánh giá)</span>
-                </span>
-                <span className="text-neutral-300">|</span>
-                <span>Đã bán {formatSold(product.sold)}</span>
-              </div>
               <p className="text-neutral-600">{product.shortDescription}</p>
             </div>
 
@@ -122,33 +136,35 @@ async function ProductContent({ params }: Pick<Props, "params">) {
                 {siteConfig.shipping.shortLabel}
               </li>
               <li className="flex items-center gap-2">
-                <RotateCcw className="size-4 text-neutral-400" aria-hidden />
-                Đổi trả miễn phí trong 7 ngày
-              </li>
-              <li className="flex items-center gap-2">
                 <ShieldCheck className="size-4 text-neutral-400" aria-hidden />
-                {product.specs["bao-hanh"]
-                  ? `Bảo hành ${product.specs["bao-hanh"]}`
-                  : "Cam kết hàng chính hãng"}
+                {product.specs["bao-hanh"] ? `Bảo hành ${product.specs["bao-hanh"]}` : siteConfig.warrantyLabel}
               </li>
             </ul>
           </div>
         </div>
 
         <div className="mt-10 grid gap-8 md:grid-cols-2 md:gap-10">
-          <section className="space-y-3">
+          {/* Bài mô tả đủ rộng cho ảnh và bảng; mô tả chữ thường (nhập CSV) vẫn hiển thị như trước. */}
+          <section className="space-y-3 md:col-span-2">
             <h2 className="text-lg font-semibold">Mô tả sản phẩm</h2>
-            {/* Văn bản thuần: React tự thoát ký tự đặc biệt, không render HTML nên không thực thi mã. */}
-            <p className="leading-7 whitespace-pre-line text-neutral-700">{product.description}</p>
-            <ul className="space-y-2">
-              {product.highlights.map((h) => (
-                <li key={h} className="flex gap-2 text-neutral-700">
-                  <Check className="mt-1 size-4 shrink-0 text-emerald-600" aria-hidden />
-                  {h}
-                </li>
-              ))}
-            </ul>
+            <div className="max-w-3xl">
+              <RichText source={product.description} vars={chrome.vars} hiddenPaths={chrome.hiddenPaths} />
+            </div>
           </section>
+
+          {product.highlights.length > 0 && (
+            <section className="space-y-3">
+              <h2 className="text-lg font-semibold">Điểm nổi bật</h2>
+              <ul className="space-y-2">
+                {product.highlights.map((h) => (
+                  <li key={h} className="flex gap-2 text-neutral-700">
+                    <Check className="mt-1 size-4 shrink-0 text-emerald-600" aria-hidden />
+                    {h}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {specRows.length > 0 && (
             <section className="space-y-3">

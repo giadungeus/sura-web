@@ -3,16 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:webpack": "next build --webpack",
     "start": "next start",
+    "start:app": "node app.js",
     "lint": "eslint",
     "admin:setup": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/admin-setup.mts",
     "catalog:import": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/catalog-import.mts",
-    "backup": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/backup.mts"
+    "backup": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/backup.mts",
+    "check:sharp": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-sharp.mts"
   },
   "dependencies": {
     "lucide-react": "^1.64.0",
@@ -20,15 +23,18 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "sharp": "^0.35.5",
+    "yauzl": "^3.4.0",
     "zustand": "^5.0.16"
   },
   "devDependencies": {
-    "@tailwindcss/turbopack": "^4",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.6.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/yauzl": "^3.4.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
+    "postcss": "^8.5.32",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

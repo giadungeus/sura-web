@@ -28,7 +28,17 @@ async function Content() {
   return (
     <CategoryForm
       parents={parents}
-      initial={{ id: null, name: "", slug: "", description: "", icon: "shopping-bag", parentId: null, sortOrder: 0, isVisible: true }}
+      initial={{
+        id: null,
+        name: "",
+        slug: "",
+        description: "",
+        icon: "shopping-bag",
+        parentId: null,
+        sortOrder: 0,
+        isVisible: true,
+        everPublic: false,
+      }}
     />
   );
 }

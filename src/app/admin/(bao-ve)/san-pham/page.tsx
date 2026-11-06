@@ -4,7 +4,7 @@ import Form from "next/form";
 import Image from "next/image";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Eye, EyeOff, Package, Pencil, Plus, Search } from "lucide-react";
-import { VisibilityBadge } from "@/components/admin/form-ui";
+import { Notice, VisibilityBadge } from "@/components/admin/form-ui";
 import { formatNumber, formatVND } from "@/lib/format";
 import { requireAdmin } from "@/lib/server/admin-auth";
 import { listAdminCategories, listAdminProducts, type ProductStatusFilter } from "@/lib/server/admin-catalog";
@@ -69,6 +69,7 @@ async function ProductsContent({ searchParams }: { searchParams: Promise<SP> }) 
           <Plus className="size-4" aria-hidden /> Thêm sản phẩm
         </Link>
       </div>
+      {typeof sp["da-xoa"] === "string" && <Notice>{sp["da-xoa"].slice(0, 200)}</Notice>}
 
       <Form action="/admin/san-pham" role="search" className="grid gap-2 sm:grid-cols-[1fr_220px_auto]">
         {tt && <input type="hidden" name="tt" value={tt} />}

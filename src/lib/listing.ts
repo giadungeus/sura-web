@@ -138,3 +138,30 @@ export function buildListingHref(
   const qs = query.toString();
   return qs ? `${basePath}?${qs}` : basePath;
 }
+
+/**
+ * Chính sách URL của trang danh sách (danh mục):
+ * - Chỉ có `trang` (hoặc không tham số): trang được lập chỉ mục, canonical là chính nó
+ *   (trang 1 không có `?trang=1`; trang 2+ giữ `?trang=N`, KHÔNG gộp về trang 1).
+ * - Có sắp xếp/lọc giá/lọc thương hiệu: không lập chỉ mục (noindex, follow), không đặt canonical.
+ * - Giá trị lạ của tham số đã biết, tham số lặp, thương hiệu không có trong danh mục,
+ *   số trang không hợp lệ hoặc vượt số trang → không hợp lệ (trang “không tìm thấy”).
+ * - Tham số khác (vd. utm_…) bị bỏ qua; canonical vẫn là URL sạch.
+ */
+export type ListingUrlState = { valid: false } | { valid: true; filtered: boolean; page: number };
+
+export function listingUrlState(searchParams: SearchParamsRecord, products: Product[], pageSize: number = siteConfig.pageSize): ListingUrlState {
+  for (const key of Object.values(PARAM)) if (Array.isArray(searchParams[key])) return { valid: false };
+  const sortRaw = searchParams[PARAM.sort] as string | undefined;
+  const priceRaw = searchParams[PARAM.price] as string | undefined;
+  const brandRaw = searchParams[PARAM.brand] as string | undefined;
+  const pageRaw = searchParams[PARAM.page] as string | undefined;
+  if (sortRaw !== undefined && !SORT_OPTIONS.some((o) => o.value === sortRaw)) return { valid: false };
+  if (priceRaw !== undefined && !PRICE_RANGES.some((r) => r.value === priceRaw)) return { valid: false };
+  if (pageRaw !== undefined && !/^[1-9]d{0,5}$/.test(pageRaw)) return { valid: false };
+  const params = parseListingParams(searchParams);
+  const result = applyListing(products, params, pageSize);
+  if (brandRaw !== undefined && !result.brands.includes(brandRaw)) return { valid: false };
+  if (params.page > result.totalPages) return { valid: false };
+  return { valid: true, filtered: sortRaw !== undefined || priceRaw !== undefined || brandRaw !== undefined, page: params.page };
+}

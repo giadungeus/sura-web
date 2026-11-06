@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { Star } from "lucide-react";
 import { ProductImage } from "@/components/product/product-image";
 import { Price } from "@/components/ui/price";
-import { discountPercent, formatSold } from "@/lib/format";
+import { discountPercent } from "@/lib/format";
 import type { Product } from "@/types";
 
 export function ProductCard({ product }: { product: Product }) {
@@ -36,12 +35,6 @@ export function ProductCard({ product }: { product: Product }) {
         </h3>
         <div className="mt-auto pt-1">
           <Price price={product.price} originalPrice={product.originalPrice} />
-        </div>
-        <div className="flex items-center gap-1 text-xs text-neutral-500">
-          <Star className="size-3.5 fill-amber-400 text-amber-400" aria-hidden />
-          <span>{product.rating.toFixed(1)}</span>
-          <span className="text-neutral-300">·</span>
-          <span>Đã bán {formatSold(product.sold)}</span>
         </div>
       </div>
     </Link>

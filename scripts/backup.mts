@@ -47,7 +47,13 @@ const stats = {
   images: count("SELECT COUNT(*) n FROM product_images"),
   admins: count("SELECT COUNT(*) n FROM admins"),
 };
-const referenced = (copy.prepare("SELECT file_name FROM product_images").all() as { file_name: string }[]).map((r) => r.file_name);
+// Ảnh nội dung (trong bài, ảnh bìa — migration v7). CSDL cũ chưa có bảng này thì bỏ qua.
+const hasContentImages = !!copy.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'content_images'").get();
+const contentImages = hasContentImages ? count("SELECT COUNT(*) n FROM content_images") : 0;
+const referenced = [
+  ...(copy.prepare("SELECT file_name FROM product_images").all() as { file_name: string }[]),
+  ...(hasContentImages ? (copy.prepare("SELECT file_name FROM content_images").all() as { file_name: string }[]) : []),
+].map((r) => r.file_name);
 copy.close();
 
 // 2) Sao chép ảnh sau khi đã chụp CSDL.
@@ -61,10 +67,10 @@ if (existsSync(uploadDir)) {
 }
 const missing = referenced.filter((f) => !existsSync(path.join(dest, "uploads", "products", f)));
 
-const manifest = { createdAt: new Date().toISOString(), source: { dbPath, uploadDir }, integrity, ...stats, imageFilesCopied: copied, missingImages: missing };
+const manifest = { createdAt: new Date().toISOString(), source: { dbPath, uploadDir }, integrity, ...stats, contentImages, imageFilesCopied: copied, missingImages: missing };
 writeFileSync(path.join(dest, "thong-tin-sao-luu.json"), JSON.stringify(manifest, null, 2));
 
 console.log(`✓ Đã sao lưu vào: ${dest}`);
 console.log(`  CSDL: ${integrity === "ok" ? "toàn vẹn (ok)" : `LỖI: ${integrity}`} · ${stats.orders} đơn · ${stats.products} sản phẩm · ${stats.categories} danh mục · ${stats.admins} tài khoản quản trị`);
-console.log(`  Ảnh: ${stats.images} ảnh trong CSDL · đã chép ${copied} tệp${missing.length ? ` · THIẾU ${missing.length} tệp: ${missing.join(", ")}` : " · không thiếu tệp nào"}`);
+console.log(`  Ảnh: ${stats.images} ảnh sản phẩm + ${contentImages} ảnh nội dung trong CSDL · đã chép ${copied} tệp${missing.length ? ` · THIẾU ${missing.length} tệp: ${missing.join(", ")}` : " · không thiếu tệp nào"}`);
 if (integrity !== "ok" || missing.length) process.exit(2);

@@ -1,7 +1,9 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { ExternalLink, LogOut, Store, UserRound } from "lucide-react";
+import { DEFAULT_SETTINGS } from "@/lib/content/settings";
 import { getAdminSession } from "@/lib/server/admin-auth";
+import { getSiteSettings } from "@/lib/server/site-content";
 import { logoutAction } from "../actions";
 
 /**
@@ -13,12 +15,14 @@ export default function ProtectedAdminLayout({ children }: { children: React.Rea
     <>
       <header className="sticky top-0 z-40 border-b border-neutral-200 bg-white">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
-          <Link href="/admin" className="flex items-center gap-2 font-semibold tracking-tight">
+          <Link href="/admin" className="flex shrink-0 items-center gap-2 font-semibold tracking-tight whitespace-nowrap">
             <span className="flex size-8 items-center justify-center rounded-lg bg-neutral-900 text-white">
               <Store className="size-4" aria-hidden />
             </span>
-            <span className="hidden sm:inline">Shop Online</span>
-            <span className="hidden rounded-md bg-neutral-100 px-1.5 py-0.5 text-xs font-medium text-neutral-600 sm:inline">
+            <Suspense fallback={<span className="hidden sm:inline">{DEFAULT_SETTINGS.brandName}</span>}>
+              <AdminBrand />
+            </Suspense>
+            <span className="hidden rounded-md bg-neutral-100 px-1.5 py-0.5 text-xs font-medium text-neutral-600 xl:inline">
               Quản trị
             </span>
           </Link>
@@ -27,6 +31,12 @@ export default function ProtectedAdminLayout({ children }: { children: React.Rea
               { href: "/admin", label: "Đơn hàng" },
               { href: "/admin/san-pham", label: "Sản phẩm" },
               { href: "/admin/danh-muc", label: "Danh mục" },
+              { href: "/admin/trang-chu", label: "Trang chủ" },
+              { href: "/admin/nhap-hang", label: "Nhập hàng" },
+              { href: "/admin/nhap-goi", label: "Nhập gói" },
+              { href: "/admin/noi-dung", label: "Nội dung" },
+              { href: "/admin/tin-tuc", label: "Tin tức" },
+              { href: "/admin/cai-dat", label: "Cài đặt" },
             ].map((item) => (
               <Link
                 key={item.href}
@@ -36,16 +46,18 @@ export default function ProtectedAdminLayout({ children }: { children: React.Rea
                 {item.label}
               </Link>
             ))}
+          </nav>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <Link
               href="/"
               target="_blank"
               rel="noopener"
-              className="hidden items-center gap-1 rounded-full px-3 py-1.5 text-neutral-600 hover:bg-neutral-100 sm:inline-flex"
+              title="Xem cửa hàng"
+              className="hidden size-9 items-center justify-center rounded-full text-neutral-600 hover:bg-neutral-100 sm:inline-flex"
             >
-              Xem cửa hàng <ExternalLink className="size-3.5" aria-hidden />
+              <ExternalLink className="size-4" aria-hidden />
+              <span className="sr-only">Xem cửa hàng</span>
             </Link>
-          </nav>
-          <div className="ml-auto flex shrink-0 items-center gap-2">
             <Suspense fallback={null}>
               <AdminName />
             </Suspense>
@@ -76,4 +88,9 @@ async function AdminName() {
       {session.username}
     </span>
   );
+}
+
+async function AdminBrand() {
+  const { brandName } = await getSiteSettings();
+  return <span className="hidden sm:inline">{brandName}</span>;
 }

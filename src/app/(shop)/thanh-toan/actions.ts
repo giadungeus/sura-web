@@ -18,8 +18,8 @@ async function grantOrderAccess(code: string) {
     value: createOrderAccessToken(code),
     httpOnly: true,
     sameSite: "lax",
-    // Bật `secure` khi chạy qua HTTPS (lúc triển khai thật).
-    secure: false,
+    // Chỉ gửi cookie qua HTTPS khi đặt SHOP_SECURE_COOKIES=1 (bật trên hosting https://sura.vn).
+    secure: process.env.SHOP_SECURE_COOKIES === "1",
     path: `/don-hang/${code}`,
     maxAge: 60 * 60 * 24 * 30,
   });
@@ -36,7 +36,7 @@ export async function previewOrder(rawItems: unknown): Promise<QuoteResult> {
 }
 
 /**
- * Tạo đơn hàng thử nghiệm (COD). Mọi dữ liệu đều được kiểm tra lại ở đây;
+ * Tạo đơn hàng thật (COD, is_test = 0). Mọi dữ liệu đều được kiểm tra lại ở đây;
  * giá và tổng tiền luôn do server tính.
  */
 export async function placeOrder(raw: unknown): Promise<PlaceOrderResult> {

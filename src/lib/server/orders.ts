@@ -5,6 +5,7 @@ import type { CartIssue, PricedLine } from "@/lib/checkout/types";
 import { isProductPurchasable } from "@/lib/server/pricing";
 import { isOrderStatus, type OrderStatus } from "@/lib/order-status";
 import { getDb, withTransaction } from "@/lib/server/db";
+import { syncProductPublic } from "@/lib/server/public-state";
 import type { ProductImage, SelectedOptions } from "@/types";
 
 export const ORDER_CODE_PATTERN = /^DH\d{6}-[A-Z0-9]{6}$/;
@@ -105,10 +106,11 @@ export function createOrder(order: NewOrder): { code: string; created: boolean }
     if (priceChanged) throw new OrderConflictError("price-changed");
 
     const now = new Date();
+    // Sura chỉ bán thật: đơn mới luôn is_test = 0 (cột mặc định 1 chỉ còn ý nghĩa với đơn cũ).
     const insertOrder = db.prepare(`
       INSERT INTO orders (code, idempotency_key, status, customer_name, phone, address, note,
-                          payment_method, subtotal, shipping_fee, total, created_at, updated_at, stock_applied)
-      VALUES (?, ?, 'cho_xac_nhan', ?, ?, ?, ?, 'COD', ?, ?, ?, ?, ?, 1)
+                          payment_method, subtotal, shipping_fee, total, created_at, updated_at, stock_applied, is_test)
+      VALUES (?, ?, 'cho_xac_nhan', ?, ?, ?, ?, 'COD', ?, ?, ?, ?, ?, 1, 0)
     `);
 
     let code = "";
@@ -163,6 +165,8 @@ export function createOrder(order: NewOrder): { code: string; created: boolean }
       );
       addSold.run(line.quantity, line.productId);
     }
+    // Hết hàng sau khi trừ kho → tình trạng Offer đổi; còn hàng thì dấu vết không đổi.
+    syncProductPublic(db, order.lines.map((l) => l.productId));
     return { code, created: true };
   });
 }

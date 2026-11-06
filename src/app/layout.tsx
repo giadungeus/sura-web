@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Be_Vietnam_Pro } from "next/font/google";
 import { siteConfig } from "@/config/site";
+import { DEFAULT_SETTINGS } from "@/lib/content/settings";
 import "./globals.css";
 
 const beVietnamPro = Be_Vietnam_Pro({
@@ -10,10 +11,11 @@ const beVietnamPro = Be_Vietnam_Pro({
   display: "swap",
 });
 
+// Tiêu đề mặc định (trang 404 gốc). Trang cửa hàng và quản trị dùng tên trong Cài đặt website.
 export const metadata: Metadata = {
   title: {
-    default: `${siteConfig.name} – Mua sắm đa ngành giá tốt`,
-    template: `%s | ${siteConfig.name}`,
+    default: `${DEFAULT_SETTINGS.brandName} – Mua sắm đa ngành, miễn phí giao hàng toàn quốc`,
+    template: `%s | ${DEFAULT_SETTINGS.brandName}`,
   },
   description: siteConfig.description,
 };

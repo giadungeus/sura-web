@@ -6,6 +6,8 @@ import { ADMIN_LOGIN_PATH, getAdminSession } from "@/lib/server/admin-auth";
 import {
   VariantWriteError,
   deleteCategory,
+  deleteProduct,
+  saveCategoryContent,
   recordUploadedImage,
   saveCategory,
   saveProduct,
@@ -14,7 +16,7 @@ import {
   type AdminImage,
   type FieldErrors,
 } from "@/lib/server/admin-catalog";
-import { ImageRejectedError, processUpload } from "@/lib/server/images";
+import { ImageRejectedError, discardStoredImage, processUpload } from "@/lib/server/images";
 
 /** Mọi thao tác quản trị đều kiểm tra lại phiên; hết phiên thì về trang đăng nhập. */
 async function requireAdmin(returnTo: string) {
@@ -55,6 +57,18 @@ export async function deleteCategoryAction(_prev: FormState, formData: FormData)
   redirect("/admin/danh-muc?da-xoa=1");
 }
 
+/** Khối “Nội dung & SEO” của danh mục: Lưu nháp / Công khai / Bỏ nháp. */
+export async function saveCategoryContentAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const id = Number(formData.get("id"));
+  await requireAdmin(Number.isInteger(id) ? `/admin/danh-muc/${id}` : "/admin/danh-muc");
+  const intent = String(formData.get("intent") ?? "");
+  if (!Number.isInteger(id) || !["draft", "publish", "discard"].includes(intent)) return { ok: false, message: "Yêu cầu không hợp lệ.", at: Date.now() };
+  const result = saveCategoryContent(id, Object.fromEntries(formData), intent as "draft" | "publish" | "discard");
+  if (!result.ok) return { ok: false, message: result.message, fieldErrors: result.fieldErrors, at: Date.now() };
+  refresh();
+  return { ok: true, message: result.message, at: Date.now() };
+}
+
 // ───────────── Sản phẩm ─────────────
 
 export async function saveProductAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -84,6 +98,24 @@ export async function saveProductAction(_prev: FormState, formData: FormData): P
   }
   if (!result.ok) return { ok: false, message: result.message, fieldErrors: result.fieldErrors, at: Date.now() };
   redirect(`/admin/san-pham/${result.value.id}?da-luu=1`);
+}
+
+/** Xoá hẳn sản phẩm chưa có đơn hàng (xem điều kiện trong deleteProduct). */
+export async function deleteProductAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const id = String(formData.get("id") ?? "");
+  await requireAdmin(PRODUCT_ID.test(id) ? `/admin/san-pham/${id}` : "/admin/san-pham");
+  if (!PRODUCT_ID.test(id)) return { ok: false, message: "Sản phẩm không hợp lệ.", at: Date.now() };
+  let result: ReturnType<typeof deleteProduct>;
+  try {
+    result = deleteProduct(id);
+  } catch (error) {
+    console.error("[admin] Lỗi xoá sản phẩm:", error instanceof Error ? error.message : error);
+    return { ok: false, message: "Không xoá được do lỗi hệ thống. Chưa có gì thay đổi.", at: Date.now() };
+  }
+  if (!result.ok) return { ok: false, message: result.message, at: Date.now() };
+  // Chỉ xoá tệp ảnh sau khi CSDL đã xoá xong (lỗi giữa chừng không làm mất ảnh).
+  for (const f of result.files) await discardStoredImage(f);
+  redirect(`/admin/san-pham?da-xoa=${encodeURIComponent(result.message)}`);
 }
 
 export async function toggleProductAction(formData: FormData): Promise<void> {

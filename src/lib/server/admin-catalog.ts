@@ -8,6 +8,8 @@ import { SKU_PATTERN, SLUG_MAX_LENGTH, SLUG_PATTERN } from "@/lib/slug";
 import { productSearchText } from "@/lib/server/catalog-seed";
 import { getDb, withTransaction } from "@/lib/server/db";
 import { MAX_IMAGES_PER_PRODUCT } from "@/lib/server/images";
+import { syncCategoryPublic, syncProductPublic } from "@/lib/server/public-state";
+import { SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, normalizeSeoText } from "@/lib/seo-text";
 import type { IconKey, SelectedOptions } from "@/types";
 
 export const ADMIN_PRODUCT_PAGE_SIZE = 20;
@@ -49,6 +51,17 @@ function parseInteger(value: unknown): number | null {
   return Number.isSafeInteger(n) ? n : null;
 }
 
+/** Đọc 2 ô SEO từ form. Chuỗi rỗng → null (dùng mặc định). */
+function readSeo(raw: Record<string, unknown>, errors: FieldErrors): { seoTitle: string | null; seoDescription: string | null } {
+  const seoTitle = normalizeSeoText(raw.seoTitle);
+  const seoDescription = normalizeSeoText(raw.seoDescription);
+  if (seoTitle.length > SEO_TITLE_MAX) errors.seoTitle = `Tiêu đề SEO tối đa ${SEO_TITLE_MAX} ký tự.`;
+  if (seoDescription.length > SEO_DESCRIPTION_MAX) errors.seoDescription = `Mô tả SEO tối đa ${SEO_DESCRIPTION_MAX} ký tự.`;
+  return { seoTitle: seoTitle || null, seoDescription: seoDescription || null };
+}
+
+export const SLUG_LOCKED_MESSAGE = "Slug đã khoá vì mục này từng công khai (đổi sẽ làm hỏng đường dẫn cũ).";
+
 // ═════════════════════════ DANH MỤC ═════════════════════════
 
 export type AdminCategory = {
@@ -64,6 +77,10 @@ export type AdminCategory = {
   productCount: number;
   childCount: number;
   depth: number;
+  seoTitle: string;
+  seoDescription: string;
+  /** Từng công khai → khoá slug. */
+  everPublic: boolean;
 };
 
 /** Danh mục theo dạng cây (cha trước, con ngay sau), kèm số sản phẩm và danh mục con. */
@@ -86,6 +103,9 @@ export function listAdminCategories(): AdminCategory[] {
     is_visible: number;
     product_count: number;
     child_count: number;
+    seo_title: string | null;
+    seo_description: string | null;
+    ever_public: number;
   }[];
   const byId = new Map(rows.map((r) => [r.id, r]));
   const result: AdminCategory[] = [];
@@ -104,6 +124,9 @@ export function listAdminCategories(): AdminCategory[] {
         productCount: r.product_count,
         childCount: r.child_count,
         depth,
+        seoTitle: r.seo_title ?? "",
+        seoDescription: r.seo_description ?? "",
+        everPublic: r.ever_public === 1,
       });
       if (depth < 5) visit(r.id, depth + 1);
     }
@@ -153,6 +176,10 @@ export function saveCategory(id: number | null, raw: Record<string, unknown>): S
     const taken = db.prepare("SELECT id FROM categories WHERE slug = ?").get(slug) as { id: number } | undefined;
     if (taken && taken.id !== id) errors.slug = "Slug này đã được dùng cho danh mục khác.";
   }
+  if (id !== null && !errors.slug) {
+    const cur = db.prepare("SELECT slug, ever_public FROM categories WHERE id = ?").get(id) as { slug: string; ever_public: number } | undefined;
+    if (cur && cur.ever_public === 1 && cur.slug !== slug) errors.slug = SLUG_LOCKED_MESSAGE;
+  }
   if (parentId !== null && !errors.parentId) {
     if (!db.prepare("SELECT 1 FROM categories WHERE id = ?").get(parentId)) errors.parentId = "Danh mục cha không tồn tại.";
     else if (id !== null) {
@@ -179,23 +206,115 @@ export function saveCategory(id: number | null, raw: Record<string, unknown>): S
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(slug, name, description, icon, parentId, sortOrder!, isVisible ? 1 : 0, t, t);
+      syncCategoryPublic(tx, [Number(r.lastInsertRowid)], t);
       return { ok: true as const, message: `Đã thêm danh mục “${name}”.`, value: { id: Number(r.lastInsertRowid) } };
     }
     const r = tx
       .prepare(
-        `UPDATE categories SET slug = ?, name = ?, description = ?, icon = ?, parent_id = ?, sort_order = ?,
-                is_visible = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE categories SET slug = ?, name = ?, icon = ?, parent_id = ?, sort_order = ?, is_visible = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(slug, name, description, icon, parentId, sortOrder!, isVisible ? 1 : 0, t, id);
+      .run(slug, name, icon, parentId, sortOrder!, isVisible ? 1 : 0, t, id);
     if (!r.changes) return { ok: false as const, message: "Không tìm thấy danh mục." };
+    syncCategoryPublic(tx, [id], t);
     return { ok: true as const, message: `Đã lưu danh mục “${name}”.`, value: { id } };
   });
 }
 
-export function setCategoryVisibility(id: number, visible: boolean): SaveResult {
+// ───────────── Nội dung & SEO danh mục (có bản nháp) ─────────────
+
+export const CATEGORY_DESCRIPTION_MAX = 300;
+export const CATEGORY_BODY_MAX = 50_000;
+/** Phần nội dung của danh mục: mô tả ngắn, nội dung chi tiết, SEO (chuỗi rỗng = mặc định/không có). */
+export type CategoryContent = { description: string; body: string; seoTitle: string; seoDescription: string };
+export type CategoryContentIntent = "draft" | "publish" | "discard";
+
+type CategoryContentRow = {
+  description: string;
+  body: string;
+  seo_title: string | null;
+  seo_description: string | null;
+  draft_json: string | null;
+};
+const publicContent = (r: CategoryContentRow): CategoryContent => ({
+  description: r.description,
+  body: r.body,
+  seoTitle: r.seo_title ?? "",
+  seoDescription: r.seo_description ?? "",
+});
+/** Bản nháp đã lưu (đủ 4 trường; trường thiếu lấy theo bản công khai). null = không có nháp. */
+export function parseCategoryDraft(r: CategoryContentRow): CategoryContent | null {
+  if (!r.draft_json) return null;
+  try {
+    const d = JSON.parse(r.draft_json) as Partial<CategoryContent>;
+    const pub = publicContent(r);
+    const pick = (k: keyof CategoryContent) => (typeof d[k] === "string" ? (d[k] as string) : pub[k]);
+    return { description: pick("description"), body: pick("body"), seoTitle: pick("seoTitle"), seoDescription: pick("seoDescription") };
+  } catch {
+    return null;
+  }
+}
+
+export type AdminCategoryContent = { live: CategoryContent; edit: CategoryContent; hasDraft: boolean; updatedAt: string };
+
+export function getCategoryContentForAdmin(id: number): AdminCategoryContent | null {
   const r = getDb()
-    .prepare("UPDATE categories SET is_visible = ?, updated_at = ? WHERE id = ?")
-    .run(visible ? 1 : 0, now(), id);
+    .prepare("SELECT description, body, seo_title, seo_description, draft_json, updated_at FROM categories WHERE id = ?")
+    .get(id) as (CategoryContentRow & { updated_at: string }) | undefined;
+  if (!r) return null;
+  const draft = parseCategoryDraft(r);
+  return { live: publicContent(r), edit: draft ?? publicContent(r), hasDraft: draft !== null, updatedAt: r.updated_at };
+}
+
+const cleanBody = (v: unknown) =>
+  typeof v === "string" ? v.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim() : "";
+
+/**
+ * - draft: lưu cả 4 trường vào bản nháp; khách vẫn thấy bản công khai (kể cả SEO).
+ * - publish: áp dụng cả 4 trường cùng lúc, xoá bản nháp. KHÔNG đổi Hiện/Ẩn hay thông tin khác của danh mục.
+ * - discard: bỏ bản nháp.
+ */
+export function saveCategoryContent(id: number, raw: Record<string, unknown>, intent: CategoryContentIntent): SaveResult {
+  const errors: FieldErrors = {};
+  if (intent === "discard") {
+    const r = withTransaction((tx) => tx.prepare("UPDATE categories SET draft_json = NULL, updated_at = ? WHERE id = ?").run(now(), id));
+    return r.changes ? { ok: true, message: "Đã bỏ bản nháp.", value: undefined } : { ok: false, message: "Không tìm thấy danh mục." };
+  }
+  const description = text(raw.description, CATEGORY_DESCRIPTION_MAX + 1);
+  const body = cleanBody(raw.body);
+  const seo = readSeo(raw, errors);
+  if (description.length > CATEGORY_DESCRIPTION_MAX) errors.description = `Mô tả ngắn tối đa ${CATEGORY_DESCRIPTION_MAX} ký tự.`;
+  if (body.length > CATEGORY_BODY_MAX) errors.body = `Nội dung chi tiết tối đa ${CATEGORY_BODY_MAX.toLocaleString("vi-VN")} ký tự.`;
+  if (Object.keys(errors).length) return { ok: false, message: "Vui lòng kiểm tra lại.", fieldErrors: errors };
+  const content: CategoryContent = { description, body, seoTitle: seo.seoTitle ?? "", seoDescription: seo.seoDescription ?? "" };
+
+  return withTransaction((tx) => {
+    const t = now();
+    if (!tx.prepare("SELECT 1 FROM categories WHERE id = ?").get(id)) return { ok: false as const, message: "Không tìm thấy danh mục." };
+    if (intent === "draft") {
+      tx.prepare("UPDATE categories SET draft_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(content), t, id);
+      return { ok: true as const, message: "Đã lưu nháp. Khách vẫn thấy nội dung và SEO đang công khai.", value: undefined };
+    }
+    writePublicCategoryContent(tx, id, content, t);
+    tx.prepare("UPDATE categories SET draft_json = NULL WHERE id = ?").run(id);
+    return { ok: true as const, message: "Đã công khai nội dung và SEO. Trạng thái Hiện/Ẩn của danh mục không đổi.", value: undefined };
+  });
+}
+
+/** Ghi bản công khai của phần nội dung (dùng chung cho quản trị và Nhập gói). */
+export function writePublicCategoryContent(db: DatabaseSync, id: number, c: CategoryContent, t = now()) {
+  db.prepare(
+    "UPDATE categories SET description = ?, body = ?, seo_title = ?, seo_description = ?, updated_at = ? WHERE id = ?",
+  ).run(c.description, c.body, c.seoTitle || null, c.seoDescription || null, t, id);
+  syncCategoryPublic(db, [id], t);
+}
+
+export function setCategoryVisibility(id: number, visible: boolean): SaveResult {
+  const r = withTransaction((tx) => {
+    const t = now();
+    const res = tx.prepare("UPDATE categories SET is_visible = ?, updated_at = ? WHERE id = ?").run(visible ? 1 : 0, t, id);
+    if (res.changes) syncCategoryPublic(tx, [id], t);
+    return res;
+  });
   if (!r.changes) return { ok: false, message: "Không tìm thấy danh mục." };
   return { ok: true, message: visible ? "Đã hiện danh mục." : "Đã ẩn danh mục.", value: undefined };
 }
@@ -355,8 +474,15 @@ export type AdminProduct = {
   images: AdminImage[];
   primaryImageId: number | null;
   orderCount: number;
+  /** Nguồn hàng + mã sản phẩm của nguồn (sản phẩm nhập từ CSV). */
+  source: string | null;
+  sourceCode: string | null;
   createdAt: string;
   updatedAt: string;
+  seoTitle: string;
+  seoDescription: string;
+  /** Từng công khai → khoá slug. */
+  everPublic: boolean;
 };
 
 export function getAdminProduct(id: string): AdminProduct | null {
@@ -373,8 +499,13 @@ export function getAdminProduct(id: string): AdminProduct | null {
         highlights_json: string;
         is_visible: number;
         option_names_json: string;
+        source: string | null;
+        source_code: string | null;
         created_at: string;
         updated_at: string;
+        seo_title: string | null;
+        seo_description: string | null;
+        ever_public: number;
       }
     | undefined;
   if (!p) return null;
@@ -415,8 +546,13 @@ export function getAdminProduct(id: string): AdminProduct | null {
     images: images.map((i) => ({ id: i.id, url: imageUrl(i.file_name), width: i.width, height: i.height })),
     primaryImageId: images.find((i) => i.is_primary)?.id ?? images[0]?.id ?? null,
     orderCount,
+    source: p.source,
+    sourceCode: p.source_code,
     createdAt: p.created_at,
     updatedAt: p.updated_at,
+    seoTitle: p.seo_title ?? "",
+    seoDescription: p.seo_description ?? "",
+    everPublic: p.ever_public === 1,
   };
 }
 
@@ -444,7 +580,7 @@ export function saveProduct(productId: string | null, raw: unknown, adminUsernam
   const slug = text(input.slug, SLUG_MAX_LENGTH).toLowerCase();
   const brand = text(input.brand, 60);
   const shortDescription = text(input.shortDescription, 300);
-  const description = multiline(input.description, 5000);
+  const description = multiline(input.description, 20000);
   const highlights = multiline(input.highlights, 2000)
     .split("\n")
     .map((l) => l.trim())
@@ -452,6 +588,7 @@ export function saveProduct(productId: string | null, raw: unknown, adminUsernam
   const categoryId = parseInteger(String(input.categoryId ?? ""));
   const isVisible = input.isVisible === true;
   const hasVariants = input.hasVariants === true;
+  const seo = readSeo(input, errors);
 
   if (name.length < 2) errors.name = "Tên sản phẩm cần ít nhất 2 ký tự.";
   else if (name.length > 150) errors.name = "Tên sản phẩm tối đa 150 ký tự.";
@@ -462,9 +599,13 @@ export function saveProduct(productId: string | null, raw: unknown, adminUsernam
     const taken = db.prepare("SELECT id FROM products WHERE slug = ?").get(slug) as { id: string } | undefined;
     if (taken && taken.id !== productId) errors.slug = "Slug này đã được dùng cho sản phẩm khác.";
   }
+  if (productId !== null && !errors.slug) {
+    const cur = db.prepare("SELECT slug, ever_public FROM products WHERE id = ?").get(productId) as { slug: string; ever_public: number } | undefined;
+    if (cur && cur.ever_public === 1 && cur.slug !== slug) errors.slug = SLUG_LOCKED_MESSAGE;
+  }
   if (brand.length > 60) errors.brand = "Thương hiệu tối đa 60 ký tự.";
   if (shortDescription.length > 300) errors.shortDescription = "Mô tả ngắn tối đa 300 ký tự.";
-  if (description.length > 5000) errors.description = "Mô tả tối đa 5.000 ký tự.";
+  if (description.length > 20000) errors.description = "Bài mô tả tối đa 20.000 ký tự.";
   if (highlights.length > 10 || highlights.some((h) => h.length > 200))
     errors.highlights = "Tối đa 10 điểm nổi bật, mỗi dòng tối đa 200 ký tự.";
   if (categoryId === null || !db.prepare("SELECT 1 FROM categories WHERE id = ?").get(categoryId))
@@ -573,8 +714,9 @@ export function saveProduct(productId: string | null, raw: unknown, adminUsernam
       const icon = (tx.prepare("SELECT icon FROM categories WHERE id = ?").get(categoryId!) as { icon: string }).icon;
       tx.prepare(
         `INSERT INTO products (id, slug, name, brand, category_id, short_description, description, highlights_json,
-                               option_names_json, placeholder_tone, placeholder_icon, is_visible, search_text, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'slate', ?, ?, ?, ?, ?)`,
+                               option_names_json, placeholder_tone, placeholder_icon, is_visible, search_text, seo_title, seo_description,
+                               created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'slate', ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         slug,
@@ -588,13 +730,16 @@ export function saveProduct(productId: string | null, raw: unknown, adminUsernam
         icon,
         isVisible ? 1 : 0,
         searchText,
+        seo.seoTitle,
+        seo.seoDescription,
         t,
         t,
       );
     } else {
       tx.prepare(
         `UPDATE products SET slug = ?, name = ?, brand = ?, category_id = ?, short_description = ?, description = ?,
-                highlights_json = ?, option_names_json = ?, is_visible = ?, search_text = ?, updated_at = ?
+                highlights_json = ?, option_names_json = ?, is_visible = ?, search_text = ?, seo_title = ?, seo_description = ?,
+                updated_at = ?
          WHERE id = ?`,
       ).run(
         slug,
@@ -607,6 +752,8 @@ export function saveProduct(productId: string | null, raw: unknown, adminUsernam
         JSON.stringify(optionNames),
         isVisible ? 1 : 0,
         searchText,
+        seo.seoTitle,
+        seo.seoDescription,
         t,
         id,
       );
@@ -615,6 +762,7 @@ export function saveProduct(productId: string | null, raw: unknown, adminUsernam
     const variantError = writeVariants(tx, id, variants);
     if (variantError) throw new VariantWriteError(variantError);
     writeImages(tx, id, imageIds, primaryImageId);
+    syncProductPublic(tx, [id], t);
 
     return { ok: true as const, message: productId ? `Đã lưu “${name}”.` : `Đã thêm sản phẩm “${name}”.`, value: { id } };
   });
@@ -679,10 +827,89 @@ function writeImages(db: DatabaseSync, productId: string, imageIds: number[], pr
   imageIds.forEach((imgId, position) => attach.run(productId, position, imgId === primaryId ? 1 : 0, imgId));
 }
 
+// ───────────── Xoá sản phẩm ─────────────
+
+export type ProductDeleteInfo = { orderCount: number; pendingImageJobs: number };
+
+/** Điều kiện xoá: sản phẩm chưa từng có trong đơn, không còn ảnh CSV đang chờ tải. */
+export function getProductDeleteInfo(id: string, db: DatabaseSync = getDb()): ProductDeleteInfo {
+  return {
+    orderCount: (db.prepare("SELECT COUNT(DISTINCT order_id) n FROM order_items WHERE product_id = ?").get(id) as { n: number }).n,
+    pendingImageJobs: (db.prepare("SELECT COUNT(*) n FROM import_image_jobs WHERE product_id = ? AND status = 'pending'").get(id) as { n: number }).n,
+  };
+}
+
+/** Tệp ảnh còn được nội dung khác dùng (ảnh bìa tin tức, nhắc trong bài viết/trang/sản phẩm khác)? */
+function imageFileInUse(db: DatabaseSync, fileName: string, productId: string): boolean {
+  const like = `%${fileName}%`;
+  return !!db
+    .prepare(
+      `SELECT 1 FROM news_posts WHERE cover_file = ? OR body LIKE ? OR draft_json LIKE ?
+       UNION ALL SELECT 1 FROM content_pages WHERE body LIKE ? OR draft_body LIKE ?
+       UNION ALL SELECT 1 FROM products WHERE id <> ? AND (description LIKE ? OR content_draft_json LIKE ?)
+       LIMIT 1`,
+    )
+    .get(fileName, like, like, like, like, productId, like, like);
+}
+
+/**
+ * Xoá hẳn một sản phẩm CHƯA từng có trong đơn hàng. Một giao dịch:
+ * - chặn nếu có trong đơn (giữ lịch sử đơn — dùng “Ẩn” thay thế) hoặc còn ảnh CSV đang chờ tải;
+ * - xoá phiên bản (cascade) và dòng ảnh của sản phẩm; ảnh còn được nội dung khác dùng thì giữ (tách khỏi sản phẩm);
+ * - lượt nhập CSV/ZIP (import_batches, package_imports) giữ nguyên; nhập CSV lần sau có thể tạo lại sản phẩm.
+ * Trả về các tệp ảnh cần xoá khỏi đĩa SAU khi giao dịch thành công.
+ */
+export function deleteProduct(id: string): { ok: true; message: string; files: string[] } | { ok: false; message: string } {
+  return withTransaction((db) => {
+    const p = db.prepare("SELECT name, content_draft_json FROM products WHERE id = ?").get(id) as
+      | { name: string; content_draft_json: string | null }
+      | undefined;
+    if (!p) return { ok: false as const, message: "Không tìm thấy sản phẩm (có thể đã bị xoá)." };
+    const info = getProductDeleteInfo(id, db);
+    if (info.orderCount > 0)
+      return {
+        ok: false as const,
+        message: `Không thể xoá “${p.name}” vì sản phẩm đã có trong ${info.orderCount} đơn hàng. Để giữ nguyên lịch sử đơn, hãy dùng nút “Ẩn sản phẩm”.`,
+      };
+    if (info.pendingImageJobs > 0)
+      return {
+        ok: false as const,
+        message: `Không thể xoá “${p.name}” lúc này vì còn ${info.pendingImageJobs} ảnh đang chờ tải từ lượt nhập CSV. Hãy chờ tải xong rồi thử lại.`,
+      };
+
+    // Ảnh của sản phẩm + ảnh nằm trong bản nháp bài viết từ gói nội dung (chưa gắn vào sản phẩm).
+    const draftIds: number[] = [];
+    try {
+      const d = p.content_draft_json ? (JSON.parse(p.content_draft_json) as { images?: { imageId: number }[] }) : null;
+      for (const i of d?.images ?? []) if (Number.isInteger(i.imageId)) draftIds.push(i.imageId);
+    } catch {}
+    const rows = [
+      ...(db.prepare("SELECT id, file_name FROM product_images WHERE product_id = ?").all(id) as { id: number; file_name: string }[]),
+      ...(draftIds.length
+        ? (db
+            .prepare(`SELECT id, file_name FROM product_images WHERE product_id IS NULL AND id IN (${draftIds.map(() => "?").join(",")})`)
+            .all(...draftIds) as { id: number; file_name: string }[])
+        : []),
+    ];
+    const files: string[] = [];
+    const removeRow = db.prepare("DELETE FROM product_images WHERE id = ?");
+    for (const r of rows) {
+      if (imageFileInUse(db, r.file_name, id)) continue; // giữ dòng ảnh; khi xoá sản phẩm nó tự tách (product_id = NULL)
+      removeRow.run(r.id);
+      files.push(r.file_name);
+    }
+    db.prepare("DELETE FROM products WHERE id = ?").run(id);
+    return { ok: true as const, message: `Đã xoá sản phẩm “${p.name}”.`, files };
+  });
+}
+
 export function setProductVisibility(id: string, visible: boolean): SaveResult {
-  const r = getDb()
-    .prepare("UPDATE products SET is_visible = ?, updated_at = ? WHERE id = ?")
-    .run(visible ? 1 : 0, now(), id);
+  const r = withTransaction((tx) => {
+    const t = now();
+    const res = tx.prepare("UPDATE products SET is_visible = ?, updated_at = ? WHERE id = ?").run(visible ? 1 : 0, t, id);
+    if (res.changes) syncProductPublic(tx, [id], t);
+    return res;
+  });
   if (!r.changes) return { ok: false, message: "Không tìm thấy sản phẩm." };
   return { ok: true, message: visible ? "Đã hiện sản phẩm trên cửa hàng." : "Đã ẩn sản phẩm khỏi cửa hàng.", value: undefined };
 }
