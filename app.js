@@ -35,6 +35,16 @@ function normalizeIp(raw) {
  * Không đặt SURA_IP_SOURCE: chỉ tin "!~Passenger-Client-Address" khi qua proxy nội bộ, hoặc địa chỉ socket khi kết nối thẳng.
  */
 function clientIp(req) {
+  if (IP_SOURCE === "coolify-traefik") {
+    const peer = normalizeIp(req.socket.remoteAddress);
+    const trusted = String(process.env.SURA_TRUSTED_PROXY_IPS || "")
+      .split(",").map(normalizeIp).filter(Boolean);
+    if (!peer || !trusted.includes(peer)) return null;
+    const forwarded = req.headers["x-forwarded-for"];
+    if (typeof forwarded !== "string") return null;
+    const ip = normalizeIp(forwarded.split(",").pop());
+    return ip ? { ip, source: "coolify-traefik" } : null;
+  }
   if (IP_SOURCE === "inet-oneshield") {
     // Header lặp lại bị Node gộp bằng dấu phẩy → không còn là IP hợp lệ → không xác định.
     const ip = normalizeIp(req.headers["x-real-ip"]);
