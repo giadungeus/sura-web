@@ -3,12 +3,13 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { getDb } from "@/lib/server/db";
-import { IMAGE_FILE_PATTERN, getUploadDir, processImageBuffer } from "@/lib/server/images";
+import { IMAGE_FILE_PATTERN, MAX_UPLOAD_BYTES, getUploadDir, processImageBuffer } from "@/lib/server/images";
 import { fetchImageFromUrl } from "@/lib/server/import/fetch-image";
 import {
   MAX_VIDEOS_PER_PRODUCT,
   VIDEO_TITLE_MAX,
   parseVideoUrl,
+  youtubeThumbUrl,
   type ParsedVideoUrl,
   type ProductVideo,
   type VideoOrientation,
@@ -97,6 +98,31 @@ async function tiktokPageCover(videoId: string): Promise<string | null> {
 /** Ảnh YouTube từ lớn đến nhỏ: maxres/sd không phải video nào cũng có (trả 404) → thử bản nhỏ hơn. */
 const YOUTUBE_THUMBS = ["maxresdefault", "sddefault", "hqdefault", "mqdefault", "default"];
 
+const YOUTUBE_THUMB = /^https:\/\/i\.ytimg\.com\/vi\/[A-Za-z0-9_-]{11}\/[a-z]+\.jpg$/;
+/** Ảnh nền tảng tải bằng fetch: chỉ máy chủ ảnh cố định của YouTube/TikTok (không phải địa chỉ tuỳ ý → không có nguy cơ SSRF). */
+const isPlatformImage = (src: string) => YOUTUBE_THUMB.test(src) || TIKTOK_CDN.test(src);
+
+/**
+ * Tải ảnh bìa từ máy chủ ảnh YouTube/TikTok bằng fetch. Trong container Coolify, node:https bị treo khi kết nối
+ * i.ytimg.com (không có đường IPv6) còn fetch kết nối được (đã kiểm chứng trong container: https.get hết thời gian chờ,
+ * fetch trả 200). Giới hạn thời gian và dung lượng như bộ tải ảnh chung.
+ */
+async function fetchPlatformImage(src: string): Promise<Buffer> {
+  if (!isPlatformImage(src)) throw new Error("Địa chỉ ảnh không thuộc YouTube/TikTok.");
+  let res: Response;
+  try {
+    res = await fetch(src, { signal: AbortSignal.timeout(15_000), redirect: "error", headers: { Accept: "image/jpeg,image/*;q=0.8" } });
+  } catch (e) {
+    throw new Error(e instanceof Error && e.name === "TimeoutError" ? "Quá thời gian tải ảnh (15 giây)." : "Không kết nối được máy chủ ảnh.");
+  }
+  if (res.status !== 200) throw new Error(`Máy chủ ảnh trả về mã ${res.status}.`);
+  if (!/^image\//i.test(res.headers.get("content-type") ?? "")) throw new Error("Không phải ảnh.");
+  if (Number(res.headers.get("content-length") ?? 0) > MAX_UPLOAD_BYTES) throw new Error("Ảnh vượt quá 5 MB.");
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > MAX_UPLOAD_BYTES) throw new Error("Ảnh vượt quá 5 MB.");
+  return buf;
+}
+
 export type CoverResult = { fileName: string; reason: null } | { fileName: null; reason: string };
 
 /**
@@ -116,7 +142,7 @@ export async function fetchPlatformCover(video: ParsedVideoUrl, oembed: OEmbed |
   let reason = "không rõ lý do";
   for (const src of sources) {
     try {
-      const processed = await processImageBuffer(await fetchImageFromUrl(src));
+      const processed = await processImageBuffer(isPlatformImage(src) ? await fetchPlatformImage(src) : await fetchImageFromUrl(src));
       return { fileName: processed.fileName, reason: null };
     } catch (e) {
       reason = e instanceof Error && e.message ? e.message : reason;
@@ -321,6 +347,7 @@ export function getPublicVideos(productId: string, db: DatabaseSync = getDb()): 
     title: r.title,
     orientation: r.orientation,
     sourceUrl: r.source_url,
-    coverUrl: r.cover_file ? imageUrl(r.cover_file) : null,
+    // Chưa lưu được ảnh bìa: YouTube → ảnh khung hình tải thẳng từ YouTube (không để thẻ đen); TikTok → thẻ nút phát.
+    coverUrl: r.cover_file ? imageUrl(r.cover_file) : r.platform === "youtube" ? youtubeThumbUrl(r.video_id) : null,
   }));
 }

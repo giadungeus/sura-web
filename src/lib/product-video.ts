@@ -109,6 +109,14 @@ function ok(platform: VideoPlatform, videoId: string, sourceUrl: string, orienta
   return { ok: true, video: { platform, videoId, sourceUrl, orientation } };
 }
 
+/**
+ * Ảnh khung hình do YouTube cung cấp (480×360, luôn có với video công khai), tải thẳng từ YouTube về trình duyệt khách.
+ * Dùng khi máy chủ chưa lưu được ảnh bìa — để thẻ video không bị đen.
+ */
+export function youtubeThumbUrl(videoId: string): string {
+  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
+
 /** Địa chỉ trình phát chính thức. Chỉ dùng sau khi khách bấm xem (không tự phát khi mở trang). */
 export function embedUrl(platform: VideoPlatform, videoId: string): string {
   if (platform === "youtube") {
