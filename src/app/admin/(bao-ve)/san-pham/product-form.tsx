@@ -10,7 +10,9 @@ import { skuFromText, slugify } from "@/lib/slug";
 import { SeoFields } from "@/components/admin/seo-fields";
 import { clipText, defaultTitle, markupToPlainText } from "@/lib/seo-text";
 import type { SelectedOptions } from "@/types";
+import type { AdminVideo } from "@/lib/server/product-videos";
 import { saveProductAction, uploadProductImageAction, type FormState } from "../../catalog-actions";
+import { VideoEditor, videoUid, type VideoItem } from "./video-editor";
 
 const MAX_IMAGES = 10;
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -47,6 +49,8 @@ export type ProductFormValues = {
   seoDescription: string;
   /** Từng công khai → khoá slug (chưa có quản lý chuyển hướng). */
   everPublic: boolean;
+  /** Video YouTube/TikTok theo thứ tự hiển thị. */
+  videos: AdminVideo[];
 };
 
 let uidCounter = 0;
@@ -107,6 +111,7 @@ export function ProductForm({
 
   const [images, setImages] = useState<ImageItem[]>(initial.images);
   const [primaryId, setPrimaryId] = useState<number | null>(initial.primaryImageId);
+  const [videos, setVideos] = useState<VideoItem[]>(() => initial.videos.map((v) => ({ ...v, uid: videoUid() })));
   const [uploading, setUploading] = useState(0);
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -243,6 +248,8 @@ export function ProductForm({
     })),
     imageIds: images.map((i) => i.id),
     primaryImageId: primaryId,
+    // Máy chủ phân tích lại link; chỉ gửi những gì quản trị nhập/chọn.
+    videos: videos.map((v) => ({ id: v.id, url: v.url, title: v.title, orientation: v.orientation, coverFile: v.coverFile, coverSource: v.coverSource })),
     seoTitle: seo.seoTitle,
     seoDescription: seo.seoDescription,
   });
@@ -473,6 +480,9 @@ export function ProductForm({
           </ul>
         )}
       </section>
+
+      {/* ───── Video ───── */}
+      <VideoEditor videos={videos} onChange={setVideos} errors={e} />
 
       {/* ───── Giá & tồn kho ───── */}
       <section className="space-y-4 rounded-2xl border border-neutral-200 bg-white p-4 sm:p-5">

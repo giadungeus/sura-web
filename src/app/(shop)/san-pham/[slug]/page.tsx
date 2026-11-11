@@ -13,7 +13,7 @@ import { PurchasePanel } from "@/components/product/purchase-panel";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Section } from "@/components/ui/section";
 import { siteConfig } from "@/config/site";
-import { getCategoryTrail, getProductBySlug, getRelatedProducts } from "@/lib/data/catalog";
+import { getCategoryTrail, getProductBySlug, getProductVideos, getRelatedProducts } from "@/lib/data/catalog";
 import { ProductGallery } from "./product-gallery";
 
 // Không dùng generateStaticParams: sản phẩm đọc từ CSDL lúc có yêu cầu,
@@ -70,10 +70,11 @@ async function ProductContent({ params }: Pick<Props, "params">) {
   const product = await getProductBySlug(slug);
   if (!product) notFound();
 
-  const [trail, related, chrome] = await Promise.all([
+  const [trail, related, chrome, videos] = await Promise.all([
     getCategoryTrail(product.category),
     getRelatedProducts(product, 4),
     getSiteChrome(),
+    getProductVideos(product.id),
   ]);
   const leafCategory = trail.at(-1);
   // Thông số hiển thị theo thứ tự thuộc tính của danh mục.
@@ -101,8 +102,13 @@ async function ProductContent({ params }: Pick<Props, "params">) {
         />
 
         <div className="mt-4 grid gap-6 md:grid-cols-2 md:gap-10">
-          {product.photos.length > 0 ? (
-            <ProductGallery photos={product.photos} name={product.name} />
+          {product.photos.length > 0 || videos.length > 0 ? (
+            <ProductGallery
+              photos={product.photos}
+              videos={videos}
+              name={product.name}
+              placeholder={<ProductImage image={product.image} label={product.name} className="absolute inset-0 rounded-3xl" iconClassName="size-1/3" />}
+            />
           ) : (
             <ProductImage image={product.image} label={product.name} className="rounded-3xl" iconClassName="size-1/3" />
           )}

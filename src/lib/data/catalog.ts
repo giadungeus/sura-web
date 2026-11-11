@@ -9,6 +9,8 @@ import "server-only";
 import { cache } from "react";
 import { connection } from "next/server";
 import { getDb } from "@/lib/server/db";
+import { getPublicVideos } from "@/lib/server/product-videos";
+import type { ProductVideo } from "@/lib/product-video";
 import { matchesAllTokens, normalizeVietnamese, tokenize } from "@/lib/search";
 import type {
   AttributeDef,
@@ -308,3 +310,11 @@ export async function searchProducts(query: string): Promise<Product[]> {
     return matchesAllTokens(haystack, tokens);
   });
 }
+
+// ───────────── Video sản phẩm ─────────────
+
+/** Video YouTube/TikTok của một sản phẩm đang hiển thị (đọc lúc có yêu cầu, như phần còn lại của danh mục). */
+export const getProductVideos = cache(async (productId: string): Promise<ProductVideo[]> => {
+  await connection();
+  return getPublicVideos(productId, getDb());
+});

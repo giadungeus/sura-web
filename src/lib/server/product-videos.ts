@@ -1,0 +1,258 @@
+import "server-only";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
+import { getDb } from "@/lib/server/db";
+import { IMAGE_FILE_PATTERN, getUploadDir, processImageBuffer } from "@/lib/server/images";
+import { fetchImageFromUrl } from "@/lib/server/import/fetch-image";
+import {
+  MAX_VIDEOS_PER_PRODUCT,
+  VIDEO_TITLE_MAX,
+  parseVideoUrl,
+  type ParsedVideoUrl,
+  type ProductVideo,
+  type VideoOrientation,
+} from "@/lib/product-video";
+
+/**
+ * Video sản phẩm ở máy chủ: kiểm tra link, lấy ảnh bìa từ nền tảng (tải ẢNH qua bộ tải an toàn, lưu WebP như ảnh sản phẩm),
+ * kiểm tra lại toàn bộ khi lưu, ghi/xoá trong giao dịch của sản phẩm. Không tải tệp video về máy chủ.
+ */
+
+const imageUrl = (fileName: string) => `/anh/${fileName}`;
+
+export type AdminVideo = {
+  id: number | null;
+  url: string;
+  title: string;
+  orientation: VideoOrientation;
+  platform: ParsedVideoUrl["platform"];
+  videoId: string;
+  coverFile: string | null;
+  coverUrl: string | null;
+  coverSource: "none" | "platform" | "upload";
+};
+
+export type InspectResult =
+  | { ok: true; video: AdminVideo; coverMessage: string | null }
+  | { ok: false; message: string };
+
+type OEmbed = { thumbnail_url?: unknown; embed_product_id?: unknown; author_unique_id?: unknown; author_url?: unknown };
+
+/** oEmbed TikTok (máy chủ cố định www.tiktok.com, có giới hạn thời gian). null nếu không lấy được. */
+async function tiktokOEmbed(url: string): Promise<OEmbed | null> {
+  try {
+    const res = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`, {
+      signal: AbortSignal.timeout(10_000),
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    if (text.length > 200_000) return null;
+    const data = JSON.parse(text) as unknown;
+    return data && typeof data === "object" ? (data as OEmbed) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Ảnh bìa từ nền tảng → lưu như ảnh sản phẩm. null nếu không lấy được (khi đó dùng khung mặc định hoặc ảnh tải lên). */
+async function fetchPlatformCover(video: ParsedVideoUrl, oembed: OEmbed | null): Promise<string | null> {
+  let src: string | null = null;
+  if (video.platform === "youtube") src = `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`;
+  else {
+    const data = oembed ?? (await tiktokOEmbed(video.sourceUrl));
+    if (typeof data?.thumbnail_url === "string" && /^https:\/\//.test(data.thumbnail_url)) src = data.thumbnail_url;
+  }
+  if (!src) return null;
+  try {
+    const processed = await processImageBuffer(await fetchImageFromUrl(src));
+    return processed.fileName;
+  } catch {
+    return null;
+  }
+}
+
+/** Kiểm tra link khi quản trị bấm “Thêm video”: chuẩn hoá link, lấy ảnh bìa nếu được. */
+export async function inspectVideoLink(raw: unknown): Promise<InspectResult> {
+  let parsed = parseVideoUrl(raw);
+  let oembed: OEmbed | null = null;
+  if (!parsed.ok && parsed.shortTikTok) {
+    // Link rút gọn vm./vt.tiktok.com: tra oEmbed để lấy tài khoản + mã video, dựng link đầy đủ.
+    oembed = await tiktokOEmbed(parsed.url);
+    const id = typeof oembed?.embed_product_id === "string" ? oembed.embed_product_id : "";
+    const user = typeof oembed?.author_unique_id === "string" ? oembed.author_unique_id : "";
+    parsed = id && user ? parseVideoUrl(`https://www.tiktok.com/@${user}/video/${id}`) : { ok: false, message: "" };
+    if (!parsed.ok)
+      return { ok: false, message: "Không đọc được link TikTok rút gọn. Hãy mở video trên TikTok và dán link đầy đủ dạng tiktok.com/@tên-tài-khoản/video/…" };
+  }
+  if (!parsed.ok) return { ok: false, message: parsed.shortTikTok ? "Link không hợp lệ." : parsed.message };
+  const v = parsed.video;
+  const coverFile = await fetchPlatformCover(v, oembed);
+  return {
+    ok: true,
+    video: {
+      id: null,
+      url: v.sourceUrl,
+      title: "",
+      orientation: v.orientation,
+      platform: v.platform,
+      videoId: v.videoId,
+      coverFile,
+      coverUrl: coverFile ? imageUrl(coverFile) : null,
+      coverSource: coverFile ? "platform" : "none",
+    },
+    coverMessage: coverFile ? null : "Chưa lấy được ảnh bìa từ nền tảng — có thể tải ảnh bìa thay thế.",
+  };
+}
+
+// ───────────── Kiểm tra khi lưu ─────────────
+
+export type ValidVideo = {
+  id: number | null;
+  platform: ParsedVideoUrl["platform"];
+  videoId: string;
+  sourceUrl: string;
+  title: string;
+  orientation: VideoOrientation;
+  coverFile: string | null;
+  coverSource: "none" | "platform" | "upload";
+};
+
+const clean = (v: unknown, max: number) =>
+  typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max + 1) : "";
+
+/**
+ * Kiểm tra danh sách video từ form. Máy chủ phân tích lại từng link (không tin dữ liệu nền tảng/mã video từ trình duyệt);
+ * id phải thuộc chính sản phẩm; ảnh bìa phải là tệp ảnh do máy chủ tạo và còn trên đĩa.
+ */
+export function validateVideos(
+  raw: unknown[],
+  productId: string | null,
+  db: DatabaseSync,
+  errors: Record<string, string>,
+): ValidVideo[] {
+  if (raw.length > MAX_VIDEOS_PER_PRODUCT) {
+    errors.videos = `Tối đa ${MAX_VIDEOS_PER_PRODUCT} video.`;
+    return [];
+  }
+  const owned = new Set(
+    productId === null
+      ? []
+      : (db.prepare("SELECT id FROM product_videos WHERE product_id = ?").all(productId) as { id: number }[]).map((r) => r.id),
+  );
+  const seen = new Set<string>();
+  const out: ValidVideo[] = [];
+  raw.forEach((rv, i) => {
+    const v = (typeof rv === "object" && rv !== null ? rv : {}) as Record<string, unknown>;
+    const key = `videos.${i}`;
+    const idNum = typeof v.id === "number" && Number.isInteger(v.id) ? v.id : null;
+    if (v.id !== null && v.id !== undefined && (idNum === null || !owned.has(idNum))) {
+      errors[`${key}.url`] = `Video ${i + 1}: không thuộc sản phẩm này, vui lòng tải lại trang.`;
+      return;
+    }
+    const parsed = parseVideoUrl(v.url);
+    if (!parsed.ok) {
+      errors[`${key}.url`] = `Video ${i + 1}: ${parsed.shortTikTok ? "hãy bấm “Thêm” để chuyển link rút gọn thành link đầy đủ." : parsed.message}`;
+      return;
+    }
+    const p = parsed.video;
+    const dupKey = `${p.platform}:${p.videoId}`;
+    if (seen.has(dupKey)) errors[`${key}.url`] = `Video ${i + 1}: trùng với video khác của sản phẩm.`;
+    seen.add(dupKey);
+    const title = clean(v.title, VIDEO_TITLE_MAX);
+    if (title.length < 2) errors[`${key}.title`] = `Video ${i + 1}: nhập tiêu đề (vd. “Hướng dẫn kết nối”).`;
+    else if (title.length > VIDEO_TITLE_MAX) errors[`${key}.title`] = `Video ${i + 1}: tiêu đề tối đa ${VIDEO_TITLE_MAX} ký tự.`;
+    const orientation: VideoOrientation = v.orientation === "portrait" ? "portrait" : v.orientation === "landscape" ? "landscape" : p.orientation;
+    let coverFile: string | null = null;
+    if (v.coverFile !== null && v.coverFile !== undefined && v.coverFile !== "") {
+      const f = String(v.coverFile);
+      if (!IMAGE_FILE_PATTERN.test(f) || !existsSync(path.join(/*turbopackIgnore: true*/ getUploadDir(), f)))
+        errors[`${key}.cover`] = `Video ${i + 1}: ảnh bìa không còn hợp lệ, vui lòng chọn lại.`;
+      else coverFile = f;
+    }
+    const coverSource = coverFile === null ? "none" : v.coverSource === "upload" ? "upload" : "platform";
+    out.push({ id: idNum, platform: p.platform, videoId: p.videoId, sourceUrl: p.sourceUrl, title, orientation, coverFile, coverSource });
+  });
+  return out;
+}
+
+/**
+ * Ghi video trong giao dịch của sản phẩm (thêm/sửa/xoá/sắp xếp). Trả về tệp ảnh bìa không còn dùng để xoá SAU khi
+ * giao dịch thành công. Chỉ gọi khi form có gửi danh sách video — thao tác không gửi video thì video hiện có giữ nguyên.
+ */
+export function writeVideos(db: DatabaseSync, productId: string, videos: ValidVideo[], t: string): string[] {
+  const current = db.prepare("SELECT id, cover_file FROM product_videos WHERE product_id = ?").all(productId) as {
+    id: number;
+    cover_file: string | null;
+  }[];
+  const keep = new Set(videos.filter((v) => v.id !== null).map((v) => v.id!));
+  const oldCovers = new Set(current.map((c) => c.cover_file).filter((f): f is string => !!f));
+  const del = db.prepare("DELETE FROM product_videos WHERE id = ? AND product_id = ?");
+  for (const c of current) if (!keep.has(c.id)) del.run(c.id, productId);
+  const update = db.prepare(
+    `UPDATE product_videos SET position = ?, platform = ?, video_id = ?, source_url = ?, title = ?, orientation = ?,
+            cover_file = ?, cover_source = ?, updated_at = ? WHERE id = ? AND product_id = ?`,
+  );
+  const insert = db.prepare(
+    `INSERT INTO product_videos (product_id, position, platform, video_id, source_url, title, orientation, cover_file, cover_source, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  videos.forEach((v, position) => {
+    if (v.id !== null) update.run(position, v.platform, v.videoId, v.sourceUrl, v.title, v.orientation, v.coverFile, v.coverSource, t, v.id, productId);
+    else insert.run(productId, position, v.platform, v.videoId, v.sourceUrl, v.title, v.orientation, v.coverFile, v.coverSource, t, t);
+  });
+  const stillUsed = db.prepare("SELECT 1 FROM product_videos WHERE cover_file = ? LIMIT 1");
+  return [...oldCovers].filter((f) => !stillUsed.get(f));
+}
+
+/** Tệp ảnh bìa của sản phẩm (để xoá khỏi đĩa khi xoá hẳn sản phẩm). */
+export function videoCoverFiles(db: DatabaseSync, productId: string): string[] {
+  return (db.prepare("SELECT DISTINCT cover_file FROM product_videos WHERE product_id = ? AND cover_file IS NOT NULL").all(productId) as {
+    cover_file: string;
+  }[]).map((r) => r.cover_file);
+}
+
+type VideoRow = {
+  id: number;
+  platform: "youtube" | "tiktok";
+  video_id: string;
+  source_url: string;
+  title: string;
+  orientation: VideoOrientation;
+  cover_file: string | null;
+  cover_source: "none" | "platform" | "upload";
+};
+
+const rows = (db: DatabaseSync, productId: string) =>
+  db
+    .prepare(
+      `SELECT id, platform, video_id, source_url, title, orientation, cover_file, cover_source FROM product_videos
+       WHERE product_id = ? ORDER BY position, id`,
+    )
+    .all(productId) as VideoRow[];
+
+export function getAdminVideos(productId: string, db: DatabaseSync = getDb()): AdminVideo[] {
+  return rows(db, productId).map((r) => ({
+    id: r.id,
+    url: r.source_url,
+    title: r.title,
+    orientation: r.orientation,
+    platform: r.platform,
+    videoId: r.video_id,
+    coverFile: r.cover_file,
+    coverUrl: r.cover_file ? imageUrl(r.cover_file) : null,
+    coverSource: r.cover_source,
+  }));
+}
+
+export function getPublicVideos(productId: string, db: DatabaseSync = getDb()): ProductVideo[] {
+  return rows(db, productId).map((r) => ({
+    platform: r.platform,
+    videoId: r.video_id,
+    title: r.title,
+    orientation: r.orientation,
+    sourceUrl: r.source_url,
+    coverUrl: r.cover_file ? imageUrl(r.cover_file) : null,
+  }));
+}

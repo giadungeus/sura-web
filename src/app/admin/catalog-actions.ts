@@ -17,6 +17,7 @@ import {
   type FieldErrors,
 } from "@/lib/server/admin-catalog";
 import { ImageRejectedError, discardStoredImage, processUpload } from "@/lib/server/images";
+import { inspectVideoLink, type InspectResult } from "@/lib/server/product-videos";
 
 /** Mọi thao tác quản trị đều kiểm tra lại phiên; hết phiên thì về trang đăng nhập. */
 async function requireAdmin(returnTo: string) {
@@ -97,6 +98,8 @@ export async function saveProductAction(_prev: FormState, formData: FormData): P
     return { ok: false, message: "Không lưu được do lỗi hệ thống. Vui lòng thử lại.", at: Date.now() };
   }
   if (!result.ok) return { ok: false, message: result.message, fieldErrors: result.fieldErrors, at: Date.now() };
+  // Ảnh bìa video bị thay/xoá: chỉ xoá tệp sau khi CSDL đã lưu xong.
+  for (const f of result.value.discardFiles) await discardStoredImage(f);
   redirect(`/admin/san-pham/${result.value.id}?da-luu=1`);
 }
 
@@ -139,6 +142,38 @@ export async function uploadProductImageAction(formData: FormData): Promise<Uplo
   } catch (error) {
     if (error instanceof ImageRejectedError) return { ok: false, message: `${file.name}: ${error.message}` };
     console.error("[admin] Lỗi tải ảnh:", error instanceof Error ? error.message : error);
+    return { ok: false, message: `${file.name}: không lưu được ảnh do lỗi hệ thống.` };
+  }
+}
+
+// ───────────── Video sản phẩm ─────────────
+
+/** Kiểm tra link video (YouTube/TikTok) ở máy chủ và lấy ảnh bìa từ nền tảng nếu được. Video chỉ lưu khi bấm “Lưu”. */
+export async function inspectVideoAction(url: string): Promise<InspectResult> {
+  const session = await getAdminSession();
+  if (!session) return { ok: false, message: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." };
+  try {
+    return await inspectVideoLink(typeof url === "string" ? url : "");
+  } catch (error) {
+    console.error("[admin] Lỗi kiểm tra link video:", error instanceof Error ? error.message : error);
+    return { ok: false, message: "Không kiểm tra được link do lỗi hệ thống. Vui lòng thử lại." };
+  }
+}
+
+export type CoverUploadResult = { ok: true; fileName: string; url: string } | { ok: false; message: string };
+
+/** Tải ảnh bìa thay thế cho video (cùng quy trình kiểm tra/nén như ảnh sản phẩm). */
+export async function uploadVideoCoverAction(formData: FormData): Promise<CoverUploadResult> {
+  const session = await getAdminSession();
+  if (!session) return { ok: false, message: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." };
+  const file = formData.get("file");
+  if (!(file instanceof File)) return { ok: false, message: "Không nhận được tệp." };
+  try {
+    const processed = await processUpload(file);
+    return { ok: true, fileName: processed.fileName, url: `/anh/${processed.fileName}` };
+  } catch (error) {
+    if (error instanceof ImageRejectedError) return { ok: false, message: `${file.name}: ${error.message}` };
+    console.error("[admin] Lỗi tải ảnh bìa video:", error instanceof Error ? error.message : error);
     return { ok: false, message: `${file.name}: không lưu được ảnh do lỗi hệ thống.` };
   }
 }

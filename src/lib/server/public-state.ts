@@ -32,7 +32,11 @@ function productFingerprint(db: DatabaseSync, id: string): string | null {
   const images = db
     .prepare("SELECT file_name, alt, is_primary FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, position, id")
     .all(id);
-  return hash([p, variants, images]);
+  // Video chỉ tham gia dấu vết khi sản phẩm có video → sản phẩm không video giữ nguyên dấu vết cũ (không đổi lastmod hàng loạt).
+  const videos = db
+    .prepare("SELECT platform, video_id, title, orientation, cover_file FROM product_videos WHERE product_id = ? ORDER BY position, id")
+    .all(id);
+  return hash(videos.length ? [p, variants, images, videos] : [p, variants, images]);
 }
 
 function rowFingerprint(db: DatabaseSync, kind: Exclude<Kind, "products">, key: string | number): string | null {

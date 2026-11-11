@@ -50,6 +50,7 @@ async function Content() {
         seoTitle: "",
         seoDescription: "",
         everPublic: false,
+        videos: [],
       }}
     />
   );

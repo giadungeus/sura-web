@@ -65,8 +65,24 @@ export function isPublicAddress(address: string): boolean {
 
 const allowPrivate = () => process.env.SHOP_IMPORT_ALLOW_PRIVATE_HOSTS === "1";
 
-/** Phân giải DNS rồi từ chối nếu địa chỉ không công khai — dùng trực tiếp làm địa chỉ kết nối. */
+/**
+ * Phân giải DNS rồi từ chối nếu địa chỉ không công khai — dùng trực tiếp làm địa chỉ kết nối.
+ * Node mới (≥ 20, chọn họ địa chỉ tự động) gọi lookup với `all: true` và cần MẢNG địa chỉ; trả một địa chỉ sẽ lỗi
+ * “Invalid IP address: undefined”. Hỗ trợ cả hai kiểu; với mảng, nếu có BẤT KỲ địa chỉ nội bộ nào thì từ chối cả.
+ */
 const safeLookup: LookupFunction = (hostname, options, callback) => {
+  if (options.all) {
+    dnsLookup(hostname, { ...options, all: true }, (err, addresses) => {
+      if (err) return callback(err, []);
+      const list = addresses as unknown as { address: string; family: number }[];
+      const bad = list.find((a) => !isPublicAddress(a.address));
+      if (!list.length || (!allowPrivate() && bad)) {
+        return callback(new ImageFetchError(`Không cho phép tải ảnh từ địa chỉ nội bộ (${bad?.address ?? "không có địa chỉ"}).`), []);
+      }
+      callback(null, list);
+    });
+    return;
+  }
   dnsLookup(hostname, { ...options, all: false }, (err, address, family) => {
     if (err) return callback(err, "", 0);
     if (!allowPrivate() && !isPublicAddress(String(address))) {

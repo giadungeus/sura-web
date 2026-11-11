@@ -19,6 +19,29 @@ export async function ChatbotSection() {
   const ip = h.get("x-sura-client-ip") ?? "";
   const source = h.get("x-sura-ip-source");
   const ipSourceSetting = String(process.env.SURA_IP_SOURCE ?? "").trim();
+  // Số địa chỉ proxy tin cậy (chỉ đếm, không hiện địa chỉ) — dùng cho chế độ coolify-traefik.
+  const trustedProxyCount = String(process.env.SURA_TRUSTED_PROXY_IPS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean).length;
+  const ipSourceText =
+    ipSourceSetting === "inet-oneshield"
+      ? "inet-oneshield — chỉ tin X-Real-IP do OneShield gắn"
+      : ipSourceSetting === "coolify-traefik"
+        ? trustedProxyCount > 0
+          ? `coolify-traefik — chỉ tin X-Forwarded-For khi kết nối đến từ proxy tin cậy (SURA_TRUSTED_PROXY_IPS: ${trustedProxyCount} địa chỉ)`
+          : "coolify-traefik — CHƯA đặt SURA_TRUSTED_PROXY_IPS nên không tin nguồn nào"
+        : ipSourceSetting
+          ? `“${ipSourceSetting}” không hợp lệ — không tin nguồn nào`
+          : "chưa đặt — Passenger/kết nối trực tiếp";
+  const sourceLabel =
+    source === "coolify-traefik"
+      ? "Coolify / Traefik (X-Forwarded-For)"
+      : source === "oneshield"
+        ? "OneShield / X-Real-IP"
+        : source === "passenger"
+          ? "header bảo mật của Passenger"
+          : "kết nối trực tiếp";
   const usd = (n: number) => `${n.toLocaleString("vi-VN", { maximumFractionDigits: 4 })} USD`;
   const active = on && cfg.apiKey !== "";
   const webOn = isWebSearchSwitchOn();
@@ -76,13 +99,13 @@ export async function ChatbotSection() {
         </li>
         <li>CAPTCHA (Cloudflare Turnstile): {cfg.turnstileSiteKey && cfg.turnstileSecret ? "đã cấu hình" : "chưa cấu hình — khi hỏi dồn dập sẽ tạm chặn vài phút thay cho CAPTCHA"}</li>
         <li>
-          Nguồn IP cấu hình (SURA_IP_SOURCE): {ipSourceSetting === "inet-oneshield" ? "inet-oneshield — chỉ tin X-Real-IP do OneShield gắn" : ipSourceSetting ? `“${ipSourceSetting}” không hợp lệ — không tin nguồn nào` : "chưa đặt — Passenger/kết nối trực tiếp"}.
+          Nguồn IP cấu hình (SURA_IP_SOURCE): {ipSourceText}.
         </li>
         <li>
           IP hệ thống nhận diện cho bạn:{" "}
           {ip ? (
             <>
-              {maskIp(ip)} (nguồn: {source === "oneshield" ? "OneShield / X-Real-IP" : source === "passenger" ? "header bảo mật của Passenger" : "kết nối trực tiếp"}) — so với IP thật của bạn để kiểm tra.
+              {maskIp(ip)} (nguồn: {sourceLabel}) — so với IP thật của bạn để kiểm tra.
             </>
           ) : cfg.noIpTest ? (
             "không xác định."

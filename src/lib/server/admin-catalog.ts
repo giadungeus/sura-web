@@ -8,6 +8,7 @@ import { SKU_PATTERN, SLUG_MAX_LENGTH, SLUG_PATTERN } from "@/lib/slug";
 import { productSearchText } from "@/lib/server/catalog-seed";
 import { getDb, withTransaction } from "@/lib/server/db";
 import { MAX_IMAGES_PER_PRODUCT } from "@/lib/server/images";
+import { getAdminVideos, validateVideos, videoCoverFiles, writeVideos, type AdminVideo } from "@/lib/server/product-videos";
 import { syncCategoryPublic, syncProductPublic } from "@/lib/server/public-state";
 import { SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, normalizeSeoText } from "@/lib/seo-text";
 import type { IconKey, SelectedOptions } from "@/types";
@@ -483,6 +484,8 @@ export type AdminProduct = {
   seoDescription: string;
   /** Từng công khai → khoá slug. */
   everPublic: boolean;
+  /** Video YouTube/TikTok theo thứ tự hiển thị. */
+  videos: AdminVideo[];
 };
 
 export function getAdminProduct(id: string): AdminProduct | null {
@@ -553,6 +556,7 @@ export function getAdminProduct(id: string): AdminProduct | null {
     seoTitle: p.seo_title ?? "",
     seoDescription: p.seo_description ?? "",
     everPublic: p.ever_public === 1,
+    videos: getAdminVideos(id, db),
   };
 }
 
@@ -570,7 +574,11 @@ type ValidVariant = {
  * Tạo hoặc cập nhật sản phẩm từ dữ liệu form (JSON). Mọi giá trị đều được kiểm tra lại
  * ở đây; giá, tồn kho, SKU, slug, ảnh, biến thể đều có ràng buộc.
  */
-export function saveProduct(productId: string | null, raw: unknown, adminUsername: string): SaveResult<{ id: string }> {
+export function saveProduct(
+  productId: string | null,
+  raw: unknown,
+  adminUsername: string,
+): SaveResult<{ id: string; discardFiles: string[] }> {
   void adminUsername;
   const input = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
   const errors: FieldErrors = {};
@@ -698,6 +706,10 @@ export function saveProduct(productId: string | null, raw: unknown, adminUsernam
   const primaryRaw = parseInteger(input.primaryImageId);
   const primaryImageId = primaryRaw !== null && imageIds.includes(primaryRaw) ? primaryRaw : (imageIds[0] ?? null);
 
+  // ── Video (YouTube/TikTok) ── Chỉ xử lý khi form gửi danh sách video; thao tác không gửi thì video hiện có giữ nguyên.
+  const videosProvided = Array.isArray(input.videos);
+  const videos = videosProvided ? validateVideos(input.videos as unknown[], productId, db, errors) : [];
+
   if (productId !== null && !db.prepare("SELECT 1 FROM products WHERE id = ?").get(productId)) {
     return { ok: false, message: "Không tìm thấy sản phẩm." };
   }
@@ -762,9 +774,14 @@ export function saveProduct(productId: string | null, raw: unknown, adminUsernam
     const variantError = writeVariants(tx, id, variants);
     if (variantError) throw new VariantWriteError(variantError);
     writeImages(tx, id, imageIds, primaryImageId);
+    const discardFiles = videosProvided ? writeVideos(tx, id, videos, t) : [];
     syncProductPublic(tx, [id], t);
 
-    return { ok: true as const, message: productId ? `Đã lưu “${name}”.` : `Đã thêm sản phẩm “${name}”.`, value: { id } };
+    return {
+      ok: true as const,
+      message: productId ? `Đã lưu “${name}”.` : `Đã thêm sản phẩm “${name}”.`,
+      value: { id, discardFiles },
+    };
   });
 }
 
@@ -898,6 +915,8 @@ export function deleteProduct(id: string): { ok: true; message: string; files: s
       removeRow.run(r.id);
       files.push(r.file_name);
     }
+    // Ảnh bìa video chỉ thuộc sản phẩm này → xoá tệp sau khi giao dịch xong (dòng video tự xoá theo sản phẩm).
+    files.push(...videoCoverFiles(db, id));
     db.prepare("DELETE FROM products WHERE id = ?").run(id);
     return { ok: true as const, message: `Đã xoá sản phẩm “${p.name}”.`, files };
   });

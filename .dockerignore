@@ -5,3 +5,6 @@ node_modules
 .data
 .env*
 npm-debug.log*
+
+# Tệp nén không cần trong image (bản lưu mã nguồn cũ, gói nội dung mẫu cho tài liệu).
+*.zip

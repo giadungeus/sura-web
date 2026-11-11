@@ -421,6 +421,26 @@ export const MIGRATIONS: string[] = [
     expires_at INTEGER NOT NULL
   );
   `,
+
+  // v11: video sản phẩm (YouTube/TikTok) — CHỈ thêm bảng; ảnh, giá, kho, biến thể, nội dung giữ nguyên.
+  // Chỉ lưu link + mã video + ảnh bìa (tệp ảnh do máy chủ xử lý); không tải tệp video về máy chủ.
+  `
+  CREATE TABLE product_videos (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id   TEXT    NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    position     INTEGER NOT NULL DEFAULT 0,
+    platform     TEXT    NOT NULL CHECK (platform IN ('youtube', 'tiktok')),
+    video_id     TEXT    NOT NULL,
+    source_url   TEXT    NOT NULL,
+    title        TEXT    NOT NULL,
+    orientation  TEXT    NOT NULL CHECK (orientation IN ('landscape', 'portrait')),
+    cover_file   TEXT,
+    cover_source TEXT    NOT NULL DEFAULT 'none' CHECK (cover_source IN ('none', 'platform', 'upload')),
+    created_at   TEXT    NOT NULL,
+    updated_at   TEXT    NOT NULL
+  );
+  CREATE INDEX idx_product_videos_product ON product_videos(product_id, position);
+  `,
 ];
 
 export function migrate(db: DatabaseSync): void {
