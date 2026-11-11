@@ -117,10 +117,14 @@ export function youtubeThumbUrl(videoId: string): string {
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 }
 
-/** Địa chỉ trình phát chính thức. Chỉ dùng sau khi khách bấm xem (không tự phát khi mở trang). */
-export function embedUrl(platform: VideoPlatform, videoId: string): string {
+/**
+ * Địa chỉ trình phát chính thức. Chỉ dùng sau khi khách bấm xem (không tự phát khi mở trang).
+ * YouTube: enablejsapi=1 + origin (trang nhúng) để điều khiển bằng IFrame Player API (tạm dừng khi cuộn đi, tự phát).
+ */
+export function embedUrl(platform: VideoPlatform, videoId: string, origin?: string): string {
   if (platform === "youtube") {
-    const p = new URLSearchParams({ autoplay: "1", playsinline: "1", rel: "0" });
+    const p = new URLSearchParams({ autoplay: "1", playsinline: "1", rel: "0", enablejsapi: "1" });
+    if (origin) p.set("origin", origin);
     return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?${p}`;
   }
   const p = new URLSearchParams({ autoplay: "1", rel: "0", description: "0", music_info: "0" });

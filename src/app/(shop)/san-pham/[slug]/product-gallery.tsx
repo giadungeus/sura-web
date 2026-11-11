@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import Image from "next/image";
 import { ExternalLink, Loader2, Maximize2, Play, X } from "lucide-react";
 import { embedUrl, platformLabel, type ProductVideo } from "@/lib/product-video";
+import { YT_STATE, loadYouTubeApi, type YTPlayer } from "@/lib/youtube-player-api";
 import type { ProductPhoto } from "@/types";
 
 type Selected = { kind: "image"; index: number } | { kind: "video"; index: number };
@@ -35,7 +36,11 @@ export function ProductGallery({
   const photo = photos[Math.min(selected.kind === "image" ? selected.index : 0, Math.max(0, photos.length - 1))];
   const video = selected.kind === "video" ? videos[selected.index] : undefined;
 
+  const frameBox = useRef<HTMLDivElement>(null);
   const playVideo = (index: number) => {
+    // Khung lớn đang khuất (khách đã cuộn xuống hàng video): đưa vào màn hình để xem ngay.
+    const r = frameBox.current?.getBoundingClientRect();
+    if (r && (r.bottom <= 0 || r.top >= window.innerHeight)) frameBox.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     setOverlay(false);
     setSelected({ kind: "video", index });
     setPlaying(true);
@@ -50,15 +55,17 @@ export function ProductGallery({
     setOverlay(true);
   };
   const closeOverlay = useCallback(() => setOverlay(false), []);
+  /** Trình phát không tạm dừng được (TikTok, hoặc YouTube API chưa sẵn sàng): đóng khung, hiện lại ảnh bìa. */
+  const stopPlaying = useCallback(() => setPlaying(false), []);
 
   return (
     <div className="min-w-0 space-y-4">
       {/* Khung lớn: tỷ lệ cố định */}
-      <div className="relative aspect-square overflow-hidden rounded-3xl bg-neutral-50">
+      <div ref={frameBox} className="relative aspect-square overflow-hidden rounded-3xl bg-neutral-50">
         {video ? (
           playing && !overlay ? (
             <div className="absolute inset-0 flex items-center justify-center bg-neutral-950">
-              <VideoPlayer key={`${video.platform}:${video.videoId}`} video={video} fit="frame" />
+              <VideoPlayer key={`${video.platform}:${video.videoId}`} video={video} fit="frame" onAutoClose={stopPlaying} />
             </div>
           ) : (
             <VideoCover video={video} onPlay={() => playVideo(selected.index)} large />
@@ -195,13 +202,76 @@ function VideoCover({ video, onPlay, large }: { video: ProductVideo; onPlay: () 
   );
 }
 
+/** Chờ trình phát tự phát (autoplay); quá thời gian mà chưa chạy (trình duyệt chặn phát có tiếng) → tắt tiếng rồi phát. */
+const AUTOPLAY_GRACE_MS = 1200;
+
 /**
  * Trình phát nhúng chính thức (YouTube nocookie / TikTok Embed Player). Chỉ được tạo khi khách bấm xem; gỡ khỏi trang
  * là dừng phát. Có chờ tải giới hạn thời gian; TikTok báo lỗi qua postMessage → hiện hướng dẫn mở video gốc.
+ * - Bấm một lần là phát: điện thoại chặn tự phát có tiếng → YouTube API tắt tiếng rồi phát (YouTube hiện nút bật tiếng).
+ * - Khung lớn ra HẲN khỏi màn hình: YouTube tạm dừng (giữ vị trí, cuộn lại vẫn dừng tới khi khách bấm);
+ *   trình phát không điều khiển được (TikTok, hoặc YouTube API chưa sẵn sàng) → `onAutoClose` đóng khung để không chạy ngầm.
  */
-function VideoPlayer({ video, fit }: { video: ProductVideo; fit: "frame" | "overlay" }) {
+function VideoPlayer({ video, fit, onAutoClose }: { video: ProductVideo; fit: "frame" | "overlay"; onAutoClose?: () => void }) {
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const frame = useRef<HTMLIFrameElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const yt = useRef<YTPlayer | null>(null);
+  // Chỉ dựng ở trình duyệt (trình phát chỉ xuất hiện sau khi khách bấm).
+  const [src] = useState(() => embedUrl(video.platform, video.videoId, window.location.origin));
+
+  // YouTube: gắn IFrame Player API vào iframe có sẵn để điều khiển.
+  useEffect(() => {
+    if (video.platform !== "youtube") return;
+    let cancelled = false;
+    let fallback: ReturnType<typeof setTimeout> | undefined;
+    loadYouTubeApi()
+      .then((YT) => {
+        if (cancelled || !frame.current) return;
+        const player = new YT.Player(frame.current, {
+          events: {
+            onReady: () => {
+              if (cancelled) return;
+              yt.current = player;
+              fallback = setTimeout(() => {
+                const s = player.getPlayerState();
+                if (s === YT_STATE.UNSTARTED || s === YT_STATE.CUED) {
+                  player.mute();
+                  player.playVideo();
+                }
+              }, AUTOPLAY_GRACE_MS);
+            },
+          },
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      clearTimeout(fallback);
+      yt.current = null;
+    };
+  }, [video.platform]);
+
+  // Khung lớn ra hẳn khỏi màn hình (threshold 0: còn 1px trong màn hình là chưa dừng) → tạm dừng / đóng.
+  useEffect(() => {
+    const el = boxRef.current;
+    if (fit !== "frame" || !el) return;
+    let seen = false;
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        seen = true;
+        return;
+      }
+      if (!seen) return; // chưa từng hiện (đang cuộn tới) → không đóng
+      const p = yt.current;
+      if (video.platform === "youtube" && p) {
+        const s = p.getPlayerState();
+        if (s === YT_STATE.PLAYING || s === YT_STATE.BUFFERING) p.pauseVideo();
+      } else onAutoClose?.();
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [fit, video.platform, onAutoClose]);
 
   useEffect(() => {
     const timer = setTimeout(() => setState((s) => (s === "loading" ? "failed" : s)), LOAD_TIMEOUT_MS);
@@ -231,10 +301,10 @@ function VideoPlayer({ video, fit }: { video: ProductVideo; fit: "frame" | "over
         : "w-[min(92vw,calc(80svh*16/9),1100px)] aspect-video";
 
   return (
-    <div className={`relative bg-black ${box}`}>
+    <div ref={boxRef} className={`relative bg-black ${box}`}>
       <iframe
         ref={frame}
-        src={embedUrl(video.platform, video.videoId)}
+        src={src}
         title={`${platformLabel(video.platform)}: ${video.title}`}
         allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
         allowFullScreen
