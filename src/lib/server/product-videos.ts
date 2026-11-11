@@ -56,6 +56,44 @@ async function tiktokOEmbed(url: string): Promise<OEmbed | null> {
   }
 }
 
+const TIKTOK_PAGE_MAX = 3_000_000;
+const TIKTOK_CDN = /^https:\/\/[a-z0-9.-]+\.(tiktokcdn\.com|tiktokcdn-us\.com|tiktokcdn-eu\.com)\//i;
+
+/**
+ * Ảnh bìa TikTok: oEmbed không có thumbnail_url, nên đọc trang công khai của video (máy chủ cố định www.tiktok.com)
+ * và lấy `video.originCover`/`video.cover` trong dữ liệu trang. Chỉ nhận link ảnh thuộc máy chủ ảnh của TikTok.
+ * null nếu TikTok không trả dữ liệu (vd. chặn truy cập tự động) → quản trị tải ảnh bìa lên.
+ */
+async function tiktokPageCover(videoId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://www.tiktok.com/@/video/${videoId}`, {
+      signal: AbortSignal.timeout(10_000),
+      redirect: "manual",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+        Accept: "text/html",
+      },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    if (html.length > TIKTOK_PAGE_MAX) return null;
+    const m = html.match(/<script[^>]*id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+    if (!m) return null;
+    const data = JSON.parse(m[1]) as {
+      __DEFAULT_SCOPE__?: { "webapp.video-detail"?: { itemInfo?: { itemStruct?: { id?: unknown; video?: Record<string, unknown> } } } };
+    };
+    const item = data.__DEFAULT_SCOPE__?.["webapp.video-detail"]?.itemInfo?.itemStruct;
+    if (!item || item.id !== videoId) return null;
+    for (const key of ["originCover", "cover", "dynamicCover"]) {
+      const url = item.video?.[key];
+      if (typeof url === "string" && TIKTOK_CDN.test(url)) return url;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** Ảnh bìa từ nền tảng → lưu như ảnh sản phẩm. null nếu không lấy được (khi đó dùng khung mặc định hoặc ảnh tải lên). */
 async function fetchPlatformCover(video: ParsedVideoUrl, oembed: OEmbed | null): Promise<string | null> {
   let src: string | null = null;
@@ -63,6 +101,7 @@ async function fetchPlatformCover(video: ParsedVideoUrl, oembed: OEmbed | null):
   else {
     const data = oembed ?? (await tiktokOEmbed(video.sourceUrl));
     if (typeof data?.thumbnail_url === "string" && /^https:\/\//.test(data.thumbnail_url)) src = data.thumbnail_url;
+    else src = await tiktokPageCover(video.videoId);
   }
   if (!src) return null;
   try {

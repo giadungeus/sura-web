@@ -250,15 +250,21 @@ function VideoPlayer({ video, fit }: { video: ProductVideo; fit: "frame" | "over
         </span>
       )}
       {state === "failed" && (
-        <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-950/95 p-4 text-center text-sm text-white">
-          <p>Không phát được video ngay tại đây (có thể video bị chặn nhúng hoặc mạng chậm).</p>
+        <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-hidden bg-neutral-950 p-4 text-center text-sm text-white">
+          {/* Ảnh bìa mờ phía sau để khách vẫn thấy video là gì. */}
+          {video.coverUrl && <Image src={video.coverUrl} alt="" fill unoptimized sizes="50vw" className="object-cover opacity-35 blur-[2px]" />}
+          <p className="relative max-w-xs font-medium drop-shadow">
+            {video.platform === "tiktok"
+              ? "TikTok chưa cho phát video này ngay trên website. Bấm nút dưới để xem trên TikTok."
+              : "Không phát được video ngay tại đây (có thể video bị chặn nhúng hoặc mạng chậm)."}
+          </p>
           <a
             href={video.sourceUrl}
             target="_blank"
             rel="noopener noreferrer nofollow"
-            className="inline-flex h-10 items-center gap-1.5 rounded-full bg-white px-4 font-semibold text-neutral-900"
+            className="relative inline-flex h-10 items-center gap-1.5 rounded-full bg-white px-4 font-semibold text-neutral-900"
           >
-            <ExternalLink className="size-4" aria-hidden /> Mở video gốc trên {platformLabel(video.platform)}
+            <ExternalLink className="size-4" aria-hidden /> Xem trên {platformLabel(video.platform)}
           </a>
         </div>
       )}
