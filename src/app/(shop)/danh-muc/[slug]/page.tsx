@@ -94,14 +94,14 @@ async function CategoryContent({ params, searchParams }: Props) {
         <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-neutral-100 text-neutral-700">
           <CategoryIcon icon={category.icon} className="size-6" />
         </span>
-        <div>
-          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{category.name}</h1>
-          <p className="text-sm text-neutral-500">{category.description}</p>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-tight [overflow-wrap:anywhere] sm:text-2xl">{category.name}</h1>
+          <p className="text-sm text-neutral-500 [overflow-wrap:anywhere]">{category.description}</p>
         </div>
       </div>
 
       {chips.length > 0 && (
-        <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
+        <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto overscroll-x-contain px-4 sm:mx-0 sm:flex-wrap sm:px-0">
           {category.parent && (
             <Link
               href={`/danh-muc/${category.parent}`}

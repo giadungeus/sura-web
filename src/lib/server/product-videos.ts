@@ -94,22 +94,48 @@ async function tiktokPageCover(videoId: string): Promise<string | null> {
   }
 }
 
-/** Ảnh bìa từ nền tảng → lưu như ảnh sản phẩm. null nếu không lấy được (khi đó dùng khung mặc định hoặc ảnh tải lên). */
-async function fetchPlatformCover(video: ParsedVideoUrl, oembed: OEmbed | null): Promise<string | null> {
-  let src: string | null = null;
-  if (video.platform === "youtube") src = `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`;
+/** Ảnh YouTube từ lớn đến nhỏ: maxres/sd không phải video nào cũng có (trả 404) → thử bản nhỏ hơn. */
+const YOUTUBE_THUMBS = ["maxresdefault", "sddefault", "hqdefault", "mqdefault", "default"];
+
+export type CoverResult = { fileName: string; reason: null } | { fileName: null; reason: string };
+
+/**
+ * Ảnh bìa từ nền tảng → lưu như ảnh sản phẩm (qua bộ tải ảnh an toàn). Không lấy được thì trả lý do cụ thể
+ * để quản trị biết (vd. máy chủ không kết nối được i.ytimg.com) và có thể tải ảnh thay thế.
+ */
+export async function fetchPlatformCover(video: ParsedVideoUrl, oembed: OEmbed | null = null): Promise<CoverResult> {
+  const sources: string[] = [];
+  if (video.platform === "youtube") sources.push(...YOUTUBE_THUMBS.map((q) => `https://i.ytimg.com/vi/${video.videoId}/${q}.jpg`));
   else {
     const data = oembed ?? (await tiktokOEmbed(video.sourceUrl));
-    if (typeof data?.thumbnail_url === "string" && /^https:\/\//.test(data.thumbnail_url)) src = data.thumbnail_url;
-    else src = await tiktokPageCover(video.videoId);
+    const src =
+      typeof data?.thumbnail_url === "string" && /^https:\/\//.test(data.thumbnail_url) ? data.thumbnail_url : await tiktokPageCover(video.videoId);
+    if (src) sources.push(src);
+    else return { fileName: null, reason: "TikTok không trả ảnh bìa cho máy chủ (có thể đang chặn truy cập tự động)." };
   }
-  if (!src) return null;
-  try {
-    const processed = await processImageBuffer(await fetchImageFromUrl(src));
-    return processed.fileName;
-  } catch {
-    return null;
+  let reason = "không rõ lý do";
+  for (const src of sources) {
+    try {
+      const processed = await processImageBuffer(await fetchImageFromUrl(src));
+      return { fileName: processed.fileName, reason: null };
+    } catch (e) {
+      reason = e instanceof Error && e.message ? e.message : reason;
+      // 404 (cỡ ảnh không có) → thử cỡ nhỏ hơn; lỗi khác (mạng, chặn) thì các cỡ khác cũng sẽ lỗi như vậy.
+      if (!/mã 404/.test(reason)) break;
+    }
   }
+  return { fileName: null, reason };
+}
+
+const coverFailMessage = (platform: ParsedVideoUrl["platform"], reason: string) =>
+  `Chưa lấy được ảnh bìa từ ${platform === "youtube" ? "YouTube" : "TikTok"} (${reason}) — bấm nút lấy ảnh bìa để thử lại hoặc tải ảnh bìa thay thế.`;
+
+/** Lấy lại ảnh bìa cho video đã có (không đổi tiêu đề/thứ tự — chỉ trả tệp ảnh mới để form gắn vào). */
+export async function refetchVideoCover(rawUrl: unknown): Promise<{ ok: true; fileName: string } | { ok: false; message: string }> {
+  const parsed = parseVideoUrl(rawUrl);
+  if (!parsed.ok) return { ok: false, message: parsed.shortTikTok ? "Link TikTok rút gọn — hãy dùng link đầy đủ." : parsed.message };
+  const cover = await fetchPlatformCover(parsed.video);
+  return cover.reason === null ? { ok: true, fileName: cover.fileName } : { ok: false, message: coverFailMessage(parsed.video.platform, cover.reason) };
 }
 
 /** Kiểm tra link khi quản trị bấm “Thêm video”: chuẩn hoá link, lấy ảnh bìa nếu được. */
@@ -127,7 +153,10 @@ export async function inspectVideoLink(raw: unknown): Promise<InspectResult> {
   }
   if (!parsed.ok) return { ok: false, message: parsed.shortTikTok ? "Link không hợp lệ." : parsed.message };
   const v = parsed.video;
-  const coverFile = await fetchPlatformCover(v, oembed);
+  const cover = await fetchPlatformCover(v, oembed);
+  const coverFile = cover.fileName;
+  // Ghi lý do vào log máy chủ (Coolify → Logs) để chẩn đoán khi không lấy được ảnh bìa.
+  if (cover.reason) console.warn(`[video] Không lấy được ảnh bìa ${v.platform} ${v.videoId}: ${cover.reason}`);
   return {
     ok: true,
     video: {
@@ -141,7 +170,7 @@ export async function inspectVideoLink(raw: unknown): Promise<InspectResult> {
       coverUrl: coverFile ? imageUrl(coverFile) : null,
       coverSource: coverFile ? "platform" : "none",
     },
-    coverMessage: coverFile ? null : "Chưa lấy được ảnh bìa từ nền tảng — có thể tải ảnh bìa thay thế.",
+    coverMessage: cover.reason === null ? null : coverFailMessage(v.platform, cover.reason),
   };
 }
 

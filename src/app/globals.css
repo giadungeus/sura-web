@@ -18,6 +18,19 @@ html {
 body {
   background: #ffffff;
   color: var(--color-neutral-900);
+  /* viewport-fit=cover: chừa tai thỏ khi xoay ngang. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Safari iPhone tự phóng to trang khi chạm vào ô nhập có chữ dưới 16px và giữ nguyên mức phóng to
+   (trang trông như bị cắt mép phải). Trên màn hình nhỏ, mọi ô nhập dùng tối thiểu 16px. */
+@media (width < 48rem) {
+  input:not([type="checkbox"], [type="radio"], [type="range"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
 }
 
 /* Chừa chỗ cho thanh cố định cuối màn hình (nút mua, tổng tiền) để không che footer.

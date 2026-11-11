@@ -131,25 +131,31 @@ export function PurchasePanel({ product }: { product: PanelProduct }) {
         <span className={`text-xs ${purchasable ? "text-neutral-500" : "font-medium text-brand-600"}`}>{statusText}</span>
       </div>
 
-      {/* Trên điện thoại, nút mua cố định ở cuối màn hình. */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {justAdded ? "Đã thêm sản phẩm vào giỏ hàng" : ""}
+      </p>
+      {/* Thanh phải là phần tử CUỐI của khối space-y: Tailwind 4 thêm margin-bottom cho mọi phần tử con trừ phần tử cuối,
+          kể cả phần tử fixed → thanh bị đẩy lên 20px khỏi đáy, lộ nội dung phía dưới. */}
+      {/* Điện thoại: thanh mua cố định ở đáy — 2 nút cùng hàng cao 48px, cách nhau 8px, lề 16px, chừa thanh Home của iPhone.
+          “Thêm vào giỏ” ~55%, “Mua ngay” phần còn lại. Máy tính: nằm trong khung thông tin như cũ. */}
       <div
         data-bottom-bar="product"
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-200 bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:static md:border-0 md:bg-transparent md:p-0"
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-200 bg-white px-[max(1rem,env(safe-area-inset-left))] pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:static md:border-0 md:bg-transparent md:p-0"
       >
-        <div className="mx-auto flex max-w-6xl gap-3">
+        <div className="mx-auto flex max-w-6xl gap-2 md:gap-3">
           <button
             type="button"
             onClick={handleAdd}
             disabled={!purchasable}
-            className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full border border-neutral-900 text-sm font-semibold text-neutral-900 hover:bg-neutral-50 disabled:opacity-40"
+            className="inline-flex h-12 min-w-0 flex-[11_1_0%] items-center justify-center gap-2 rounded-full border border-neutral-900 bg-white px-3 text-sm font-semibold whitespace-nowrap text-neutral-900 hover:bg-neutral-50 disabled:opacity-40 md:flex-1"
           >
             {justAdded ? (
               <>
-                <Check className="size-4" aria-hidden /> Đã thêm
+                <Check className="size-4 shrink-0 max-[359px]:hidden" aria-hidden /> Đã thêm
               </>
             ) : (
               <>
-                <ShoppingCart className="size-4" aria-hidden /> Thêm vào giỏ
+                <ShoppingCart className="size-4 shrink-0 max-[359px]:hidden" aria-hidden /> Thêm vào giỏ
               </>
             )}
           </button>
@@ -157,15 +163,12 @@ export function PurchasePanel({ product }: { product: PanelProduct }) {
             type="button"
             onClick={handleBuyNow}
             disabled={!purchasable}
-            className="inline-flex h-12 flex-1 items-center justify-center rounded-full bg-neutral-900 text-sm font-semibold text-white hover:bg-neutral-800 disabled:opacity-40"
+            className="inline-flex h-12 min-w-0 flex-[9_1_0%] items-center justify-center rounded-full bg-neutral-900 px-3 text-sm font-semibold whitespace-nowrap text-white hover:bg-neutral-800 disabled:opacity-40 md:flex-1"
           >
             {purchasable ? "Mua ngay" : "Hết hàng"}
           </button>
         </div>
       </div>
-      <p className="sr-only" role="status" aria-live="polite">
-        {justAdded ? "Đã thêm sản phẩm vào giỏ hàng" : ""}
-      </p>
     </div>
   );
 }

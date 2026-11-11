@@ -17,7 +17,7 @@ import {
   type FieldErrors,
 } from "@/lib/server/admin-catalog";
 import { ImageRejectedError, discardStoredImage, processUpload } from "@/lib/server/images";
-import { inspectVideoLink, type InspectResult } from "@/lib/server/product-videos";
+import { inspectVideoLink, refetchVideoCover, type InspectResult } from "@/lib/server/product-videos";
 
 /** Mọi thao tác quản trị đều kiểm tra lại phiên; hết phiên thì về trang đăng nhập. */
 async function requireAdmin(returnTo: string) {
@@ -157,6 +157,20 @@ export async function inspectVideoAction(url: string): Promise<InspectResult> {
   } catch (error) {
     console.error("[admin] Lỗi kiểm tra link video:", error instanceof Error ? error.message : error);
     return { ok: false, message: "Không kiểm tra được link do lỗi hệ thống. Vui lòng thử lại." };
+  }
+}
+
+/** Lấy lại ảnh bìa từ YouTube/TikTok cho video đã có (giữ tiêu đề, thứ tự). Video cập nhật khi bấm “Lưu”. */
+export async function refetchVideoCoverAction(url: string): Promise<CoverUploadResult> {
+  const session = await getAdminSession();
+  if (!session) return { ok: false, message: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." };
+  try {
+    const res = await refetchVideoCover(typeof url === "string" ? url : "");
+    if (!res.ok) console.warn("[admin] Không lấy được ảnh bìa video:", res.message);
+    return res.ok ? { ok: true, fileName: res.fileName, url: `/anh/${res.fileName}` } : res;
+  } catch (error) {
+    console.error("[admin] Lỗi lấy ảnh bìa video:", error instanceof Error ? error.message : error);
+    return { ok: false, message: "Không lấy được ảnh bìa do lỗi hệ thống. Vui lòng thử lại." };
   }
 }
 

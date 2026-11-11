@@ -106,7 +106,7 @@ export function ProductGallery({
           <h2 id="video-san-pham" className="text-base font-semibold">
             Video sản phẩm
           </h2>
-          <ul className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
+          <ul className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto overscroll-x-contain px-4 pb-1 md:mx-0 md:px-0">
             {videos.map((v, i) => {
               const active = selected.kind === "video" && selected.index === i;
               return (
@@ -151,7 +151,7 @@ export function ProductGallery({
               Hình ảnh sản phẩm
             </h2>
           )}
-          <ul className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 md:mx-0 md:px-0" aria-label="Ảnh sản phẩm">
+          <ul className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto overscroll-x-contain px-4 md:mx-0 md:px-0" aria-label="Ảnh sản phẩm">
             {photos.map((p, i) => {
               const active = selected.kind === "image" && selected.index === i;
               return (

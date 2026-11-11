@@ -74,7 +74,8 @@ const safeLookup: LookupFunction = (hostname, options, callback) => {
   if (options.all) {
     dnsLookup(hostname, { ...options, all: true }, (err, addresses) => {
       if (err) return callback(err, []);
-      const list = addresses as unknown as { address: string; family: number }[];
+      // IPv4 trước: container Docker thường không có đường IPv6, thử IPv6 trước có thể làm hỏng/chậm kết nối.
+      const list = [...(addresses as unknown as { address: string; family: number }[])].sort((a, b) => a.family - b.family);
       const bad = list.find((a) => !isPublicAddress(a.address));
       if (!list.length || (!allowPrivate() && bad)) {
         return callback(new ImageFetchError(`Không cho phép tải ảnh từ địa chỉ nội bộ (${bad?.address ?? "không có địa chỉ"}).`), []);

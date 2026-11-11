@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { ArrowDown, ArrowUp, ExternalLink, ImagePlus, Loader2, Plus, Trash, Video } from "lucide-react";
+import { ArrowDown, ArrowUp, ExternalLink, ImagePlus, Loader2, Plus, RefreshCw, Trash, Video } from "lucide-react";
 import { ErrorText, inputClass } from "@/components/admin/form-ui";
 import { MAX_VIDEOS_PER_PRODUCT, VIDEO_TITLE_MAX, platformLabel } from "@/lib/product-video";
 import type { AdminVideo } from "@/lib/server/product-videos";
-import { inspectVideoAction, uploadVideoCoverAction } from "../../catalog-actions";
+import { inspectVideoAction, refetchVideoCoverAction, uploadVideoCoverAction } from "../../catalog-actions";
 
 export type VideoItem = AdminVideo & { uid: string };
 
@@ -111,6 +111,21 @@ export function VideoEditor({
       } else setMessage({ tone: "error", text: res.message });
     } catch {
       setMessage({ tone: "error", text: `${file.name}: không tải lên được (lỗi kết nối).` });
+    } finally {
+      setUploadingUid(null);
+    }
+  };
+
+  /** Lấy lại ảnh bìa từ YouTube/TikTok cho video đã có — giữ tiêu đề, thứ tự; áp dụng khi bấm “Lưu”. */
+  const refetchCover = async (v: VideoItem) => {
+    setUploadingUid(v.uid);
+    setMessage(null);
+    try {
+      const res = await refetchVideoCoverAction(v.url);
+      if (res.ok) update(v.uid, { coverFile: res.fileName, coverUrl: res.url, coverSource: "platform" });
+      else setMessage({ tone: "error", text: res.message });
+    } catch {
+      setMessage({ tone: "error", text: "Không lấy được ảnh bìa (lỗi kết nối). Vui lòng thử lại." });
     } finally {
       setUploadingUid(null);
     }
@@ -230,6 +245,17 @@ export function VideoEditor({
                       <ImagePlus className="size-4" aria-hidden />
                       {v.coverUrl ? "Đổi ảnh bìa" : "Tải ảnh bìa"}
                     </button>
+                    {v.coverSource !== "upload" && (
+                      <button
+                        type="button"
+                        onClick={() => void refetchCover(v)}
+                        disabled={uploadingUid !== null}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-full border border-neutral-300 px-3 hover:bg-neutral-50 disabled:opacity-50"
+                      >
+                        <RefreshCw className="size-4" aria-hidden />
+                        {v.coverUrl ? "Lấy lại ảnh bìa" : `Lấy ảnh bìa từ ${platformLabel(v.platform)}`}
+                      </button>
+                    )}
                     {v.coverUrl && (
                       <button
                         type="button"

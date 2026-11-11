@@ -112,7 +112,7 @@ function ChipRow({ label, children }: { label: string; children: React.ReactNode
       <div
         role="group"
         aria-label={label}
-        className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0"
+        className="no-scrollbar -mx-4 flex min-w-0 flex-1 gap-2 overflow-x-auto overscroll-x-contain px-4 sm:mx-0 sm:flex-wrap sm:px-0"
       >
         {children}
       </div>

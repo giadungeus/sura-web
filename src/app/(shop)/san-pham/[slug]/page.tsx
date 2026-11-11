@@ -52,7 +52,8 @@ function ProductSkeleton() {
   return (
     <div className="mx-auto max-w-6xl px-4 pt-4 sm:pt-6" aria-busy="true">
       <div className="h-4 w-56 animate-pulse rounded bg-neutral-100" />
-      <div className="mt-4 grid gap-6 md:grid-cols-2 md:gap-10">
+      {/* grid-cols-1 = minmax(0,1fr): cột không giãn theo nội dung (hàng video cuộn ngang) — Safari iPhone làm trang rộng hơn màn hình nếu để cột tự co giãn. */}
+        <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-10">
         <div className="aspect-square animate-pulse rounded-3xl bg-neutral-100" />
         <div className="space-y-4">
           <div className="h-8 w-3/4 animate-pulse rounded bg-neutral-100" />
@@ -113,15 +114,15 @@ async function ProductContent({ params }: Pick<Props, "params">) {
             <ProductImage image={product.image} label={product.name} className="rounded-3xl" iconClassName="size-1/3" />
           )}
 
-          <div className="space-y-5">
+          <div className="min-w-0 space-y-5">
             <div className="space-y-2">
               <p className="text-sm text-neutral-500">
                 Thương hiệu: <span className="font-medium text-neutral-900">{product.brand}</span>
               </p>
-              <h1 className="text-2xl leading-tight font-bold tracking-tight sm:text-3xl">
+              <h1 className="text-2xl leading-tight font-bold tracking-tight [overflow-wrap:anywhere] sm:text-3xl">
                 {product.name}
               </h1>
-              <p className="text-neutral-600">{product.shortDescription}</p>
+              <p className="text-neutral-600 [overflow-wrap:anywhere]">{product.shortDescription}</p>
             </div>
 
             <PurchasePanel
@@ -149,9 +150,9 @@ async function ProductContent({ params }: Pick<Props, "params">) {
           </div>
         </div>
 
-        <div className="mt-10 grid gap-8 md:grid-cols-2 md:gap-10">
+        <div className="mt-10 grid grid-cols-1 gap-8 md:grid-cols-2 md:gap-10">
           {/* Bài mô tả đủ rộng cho ảnh và bảng; mô tả chữ thường (nhập CSV) vẫn hiển thị như trước. */}
-          <section className="space-y-3 md:col-span-2">
+          <section className="min-w-0 space-y-3 md:col-span-2">
             <h2 className="text-lg font-semibold">Mô tả sản phẩm</h2>
             <div className="max-w-3xl">
               <RichText source={product.description} vars={chrome.vars} hiddenPaths={chrome.hiddenPaths} />
@@ -179,7 +180,7 @@ async function ProductContent({ params }: Pick<Props, "params">) {
                 {specRows.map((row) => (
                   <div key={row.label} className="grid grid-cols-5 gap-3 px-4 py-3">
                     <dt className="col-span-2 text-neutral-500">{row.label}</dt>
-                    <dd className="col-span-3 text-neutral-900">{row.value}</dd>
+                    <dd className="col-span-3 text-neutral-900 [overflow-wrap:anywhere]">{row.value}</dd>
                   </div>
                 ))}
               </dl>

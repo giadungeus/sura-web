@@ -5,6 +5,13 @@ const http = require("node:http");
 const net = require("node:net");
 const next = require("next");
 
+const PORT = Number(process.env.PORT) || 3000;
+
+// Sau Server Action có redirect (vd. Lưu sản phẩm), Next.js tự gọi lại trang đích để trả kết quả ngay. Mặc định nó dựng
+// địa chỉ từ header của proxy (https://sura.vn…) và gọi vào chính máy chủ này — vốn chỉ chạy HTTP → lỗi
+// ERR_SSL_WRONG_VERSION_NUMBER trong log. Trỏ thẳng về máy chủ nội bộ bằng HTTP (header host gốc vẫn được chuyển tiếp).
+if (!process.env.__NEXT_PRIVATE_ORIGIN) process.env.__NEXT_PRIVATE_ORIGIN = `http://127.0.0.1:${PORT}`;
+
 const app = next({ dev: false, dir: __dirname });
 const handle = app.getRequestHandler();
 

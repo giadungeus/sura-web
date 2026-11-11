@@ -9,7 +9,7 @@ export function ProductCard({ product }: { product: Product }) {
   return (
     <Link
       href={`/san-pham/${product.slug}`}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white transition hover:border-neutral-300 hover:shadow-sm"
+      className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white transition hover:border-neutral-300 hover:shadow-sm"
     >
       <div className="relative">
         <ProductImage
@@ -30,7 +30,7 @@ export function ProductCard({ product }: { product: Product }) {
       </div>
       <div className="flex flex-1 flex-col gap-1.5 p-3">
         <p className="text-xs text-neutral-500">{product.brand}</p>
-        <h3 className="line-clamp-2 min-h-10 text-sm leading-5 font-medium text-neutral-900">
+        <h3 className="line-clamp-2 min-h-10 text-sm leading-5 font-medium text-neutral-900 [overflow-wrap:anywhere]">
           {product.name}
         </h3>
         <div className="mt-auto pt-1">
