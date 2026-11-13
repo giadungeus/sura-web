@@ -1,14 +1,18 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import Form from "next/form";
-import Image from "next/image";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Eye, EyeOff, Package, Pencil, Plus, Search } from "lucide-react";
-import { Notice, VisibilityBadge } from "@/components/admin/form-ui";
-import { formatNumber, formatVND } from "@/lib/format";
+import { ChevronLeft, ChevronRight, Hourglass, Package, Plus, Search } from "lucide-react";
+import { Notice } from "@/components/admin/form-ui";
 import { requireAdmin } from "@/lib/server/admin-auth";
-import { listAdminCategories, listAdminProducts, type ProductStatusFilter } from "@/lib/server/admin-catalog";
-import { toggleProductAction } from "../../catalog-actions";
+import {
+  PENDING_CATEGORY_NAME,
+  findPendingCategoryId,
+  listAdminCategories,
+  listAdminProducts,
+  type ProductStatusFilter,
+} from "@/lib/server/admin-catalog";
+import { ProductList } from "./product-list";
 
 export const metadata: Metadata = { title: "Sản phẩm" };
 
@@ -39,9 +43,6 @@ function href(p: { q?: string; dm?: number; tt?: string; trang?: number }) {
   return s ? `/admin/san-pham?${s}` : "/admin/san-pham";
 }
 
-const priceRange = (min: number | null, max: number | null) =>
-  min === null ? "—" : min === max ? formatVND(min) : `${formatVND(min)} – ${formatVND(max!)}`;
-
 async function ProductsContent({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const q = (first(sp.q) ?? "").trim().slice(0, 60);
@@ -54,6 +55,9 @@ async function ProductsContent({ searchParams }: { searchParams: Promise<SP> }) 
 
   const categories = listAdminCategories();
   const result = listAdminProducts({ q, categoryId: dm, status: tt, page });
+  // “Danh mục chờ”: sản phẩm mới từ gói nội dung, chờ chọn danh mục chính thức.
+  const pendingId = findPendingCategoryId();
+  const pendingCount = pendingId ? listAdminProducts({ categoryId: pendingId }).total : 0;
 
   return (
     <div className="space-y-5">
@@ -124,64 +128,26 @@ async function ProductsContent({ searchParams }: { searchParams: Promise<SP> }) 
         })}
       </nav>
 
+      {pendingId !== null && (
+        <Link
+          href={dm === pendingId ? href({ q, tt }) : href({ q, dm: pendingId, tt })}
+          aria-current={dm === pendingId ? "true" : undefined}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm ${
+            dm === pendingId ? "border-amber-600 bg-amber-600 text-white" : "border-amber-300 bg-amber-50 text-amber-900 hover:border-amber-500"
+          }`}
+        >
+          <Hourglass className="size-4" aria-hidden /> {PENDING_CATEGORY_NAME} ({pendingCount})
+          {dm === pendingId && <span className="text-xs opacity-80">· bấm để bỏ lọc</span>}
+        </Link>
+      )}
+
       {result.items.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-neutral-300 bg-white px-6 py-14 text-center">
           <Package className="size-10 text-neutral-300" aria-hidden />
           <p className="font-medium">Không có sản phẩm phù hợp</p>
         </div>
       ) : (
-        <ul className="divide-y divide-neutral-100 overflow-hidden rounded-2xl border border-neutral-200 bg-white">
-          {result.items.map((p) => (
-            <li key={p.id} className="flex items-center gap-3 p-3 sm:px-4">
-              <div className="relative size-14 shrink-0 overflow-hidden rounded-xl bg-neutral-100">
-                {p.imageUrl ? (
-                  <Image src={p.imageUrl} alt="" fill unoptimized sizes="56px" className="object-cover" />
-                ) : (
-                  <Package className="absolute inset-0 m-auto size-6 text-neutral-300" aria-hidden />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <Link href={`/admin/san-pham/${p.id}`} className="line-clamp-1 font-medium hover:underline">
-                  {p.name}
-                </Link>
-                <p className="truncate text-xs text-neutral-500">
-                  {p.brand && `${p.brand} · `}
-                  {p.categoryName} · {p.variantCount} phiên bản
-                </p>
-                <p className="mt-0.5 text-sm">
-                  <span className="font-medium">{priceRange(p.minPrice, p.maxPrice)}</span>
-                  <span className={`ml-2 text-xs ${p.totalStock === 0 ? "font-semibold text-brand-600" : "text-neutral-500"}`}>
-                    {p.totalStock === 0 ? "Hết hàng" : `Tồn ${formatNumber(p.totalStock)}`}
-                  </span>
-                </p>
-              </div>
-              <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
-                <VisibilityBadge visible={p.isVisible} />
-                <div className="flex gap-1.5">
-                  <form action={toggleProductAction}>
-                    <input type="hidden" name="id" value={p.id} />
-                    <input type="hidden" name="visible" value={p.isVisible ? "0" : "1"} />
-                    <button
-                      type="submit"
-                      className="inline-flex size-9 items-center justify-center rounded-full border border-neutral-200 text-neutral-600 hover:bg-neutral-100"
-                      aria-label={p.isVisible ? `Ẩn ${p.name}` : `Hiện ${p.name}`}
-                      title={p.isVisible ? "Ẩn khỏi cửa hàng" : "Hiện trên cửa hàng"}
-                    >
-                      {p.isVisible ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
-                    </button>
-                  </form>
-                  <Link
-                    href={`/admin/san-pham/${p.id}`}
-                    className="inline-flex size-9 items-center justify-center rounded-full border border-neutral-200 text-neutral-600 hover:bg-neutral-100"
-                    aria-label={`Sửa ${p.name}`}
-                  >
-                    <Pencil className="size-4" aria-hidden />
-                  </Link>
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <ProductList key={`${q}|${dm ?? ""}|${tt ?? ""}|${result.page}`} items={result.items} pendingCategoryName={PENDING_CATEGORY_NAME} />
       )}
 
       {result.totalPages > 1 && (

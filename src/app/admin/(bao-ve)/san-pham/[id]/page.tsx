@@ -5,7 +5,7 @@ import { ArrowLeft, ExternalLink } from "lucide-react";
 import { DeleteSection } from "@/components/admin/delete-section";
 import { Notice, VisibilityBadge } from "@/components/admin/form-ui";
 import { requireAdmin } from "@/lib/server/admin-auth";
-import { getAdminProduct, getProductDeleteInfo, listAdminCategories } from "@/lib/server/admin-catalog";
+import { getAdminProduct, getProductDeleteInfo, listAdminCategories, productPublishBlockers } from "@/lib/server/admin-catalog";
 import { deleteProductAction, toggleProductAction } from "../../../catalog-actions";
 import { getProductDraftInfo } from "@/lib/server/package/service";
 import { getPreviewContext } from "@/lib/server/site-content";
@@ -41,6 +41,8 @@ async function Content({ params, searchParams }: Props) {
   const categories = listAdminCategories().map((c) => ({ id: c.id, name: c.name, depth: c.depth }));
   const draft = getProductDraftInfo(product.id);
   const deleteInfo = getProductDeleteInfo(product.id);
+  // Sản phẩm mới từ gói (“Danh mục chờ”) hoặc chưa có giá/tồn kho: ghi rõ điều còn thiếu trước khi Hiện.
+  const blockers = product.isVisible ? [] : productPublishBlockers(product.id);
   const { vars, hiddenPaths } = getPreviewContext();
 
   return (
@@ -73,6 +75,19 @@ async function Content({ params, searchParams }: Props) {
         </div>
       </div>
       {sp["da-luu"] && <Notice>Đã lưu sản phẩm. Cửa hàng đã cập nhật.</Notice>}
+      {blockers.length > 0 && (
+        <div role={sp["chua-hien"] ? "alert" : undefined} className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-semibold">{sp["chua-hien"] ? "Chưa thể hiện sản phẩm — còn thiếu:" : "Cần bổ sung trước khi hiện sản phẩm:"}</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {blockers.map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs">
+            Chọn danh mục chính thức và nhập giá bán, tồn kho, SKU trong form dưới, bấm Lưu, rồi bấm “Hiện sản phẩm”.
+          </p>
+        </div>
+      )}
       {/* key: dựng lại form từ dữ liệu mới nhất sau mỗi lần lưu/ẩn/hiện. */}
       {draft && <ProductDraftBox productId={product.id} draft={draft} vars={vars} hiddenPaths={hiddenPaths} />}
       <ProductForm key={product.updatedAt} categories={categories} initial={product} vars={vars} hiddenPaths={hiddenPaths} />
@@ -83,12 +98,12 @@ async function Content({ params, searchParams }: Props) {
         name={product.name}
         blockedReason={
           deleteInfo.orderCount > 0
-            ? `Không thể xoá vì sản phẩm đã có trong ${deleteInfo.orderCount} đơn hàng — cần giữ nguyên lịch sử đơn. Nếu không bán nữa, hãy dùng nút “${product.isVisible ? "Ẩn sản phẩm" : "Hiện sản phẩm"}” ở đầu trang (sản phẩm Ẩn không hiện trên cửa hàng, nhập CSV lại vẫn giữ Ẩn).`
+            ? `Không thể xoá vì sản phẩm đã có trong ${deleteInfo.orderCount} đơn hàng — cần giữ nguyên lịch sử đơn. Nếu không bán nữa, hãy dùng nút “${product.isVisible ? "Ẩn sản phẩm" : "Hiện sản phẩm"}” ở đầu trang (sản phẩm Ẩn không hiện trên cửa hàng).`
             : deleteInfo.pendingImageJobs > 0
               ? `Chưa thể xoá: còn ${deleteInfo.pendingImageJobs} ảnh đang chờ tải từ lượt nhập CSV. Hãy chờ tải xong rồi thử lại.`
               : null
         }
-        note="Sản phẩm chưa có trong đơn hàng nào. Xoá sẽ bỏ sản phẩm, các phiên bản và ảnh riêng của sản phẩm (ảnh còn được nội dung khác dùng sẽ được giữ). Lịch sử nhập CSV/gói nội dung vẫn còn; lần nhập CSV sau có thể tạo lại sản phẩm."
+        note="Sản phẩm chưa có trong đơn hàng nào. Xoá sẽ bỏ sản phẩm, các phiên bản và ảnh riêng của sản phẩm (ảnh còn được nội dung khác dùng sẽ được giữ). Lịch sử nhập gói vẫn còn."
       />
     </>
   );

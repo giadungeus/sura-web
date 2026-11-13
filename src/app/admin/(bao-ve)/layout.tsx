@@ -26,27 +26,6 @@ export default function ProtectedAdminLayout({ children }: { children: React.Rea
               Quản trị
             </span>
           </Link>
-          <nav aria-label="Quản trị" className="no-scrollbar flex min-w-0 items-center gap-0.5 overflow-x-auto text-sm sm:ml-2">
-            {[
-              { href: "/admin", label: "Đơn hàng" },
-              { href: "/admin/san-pham", label: "Sản phẩm" },
-              { href: "/admin/danh-muc", label: "Danh mục" },
-              { href: "/admin/trang-chu", label: "Trang chủ" },
-              { href: "/admin/nhap-hang", label: "Nhập hàng" },
-              { href: "/admin/nhap-goi", label: "Nhập gói" },
-              { href: "/admin/noi-dung", label: "Nội dung" },
-              { href: "/admin/tin-tuc", label: "Tin tức" },
-              { href: "/admin/cai-dat", label: "Cài đặt" },
-            ].map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="shrink-0 rounded-full px-2.5 py-1.5 font-medium whitespace-nowrap text-neutral-700 hover:bg-neutral-100 hover:text-neutral-900 sm:px-3"
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <Link
               href="/"
@@ -73,6 +52,31 @@ export default function ProtectedAdminLayout({ children }: { children: React.Rea
             </form>
           </div>
         </div>
+        {/*
+          Menu là hàng riêng, TỰ XUỐNG DÒNG — không cuộn ngang. Trước đây menu nằm chung hàng và cuộn ngang với thanh cuộn
+          bị ẩn, nên mục cuối (“Cài đặt”) bị đẩy ra ngoài màn hình và không thấy được.
+          Nhập hàng (CSV) đã bỏ khỏi menu; trang /admin/nhap-hang vẫn giữ để chạy tiếp ảnh CSV còn đang chờ (nếu có).
+        */}
+        <nav aria-label="Quản trị" className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-0.5 gap-y-1 px-3 pb-2 text-sm sm:px-4">
+          {[
+            { href: "/admin", label: "Đơn hàng" },
+            { href: "/admin/san-pham", label: "Sản phẩm" },
+            { href: "/admin/danh-muc", label: "Danh mục" },
+            { href: "/admin/trang-chu", label: "Trang chủ" },
+            { href: "/admin/nhap-goi", label: "Nhập gói" },
+            { href: "/admin/noi-dung", label: "Nội dung" },
+            { href: "/admin/tin-tuc", label: "Tin tức" },
+            { href: "/admin/cai-dat", label: "Cài đặt" },
+          ].map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="rounded-full px-2.5 py-1.5 font-medium whitespace-nowrap text-neutral-700 hover:bg-neutral-100 hover:text-neutral-900 sm:px-3"
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
       </header>
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:py-8">{children}</main>
     </>

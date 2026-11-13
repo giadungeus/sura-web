@@ -7,19 +7,19 @@
  * - Bỏ lượt/hết hạn (24 giờ)/nhập xong: xoá ZIP tạm và ảnh đã xử lý nhưng không được dùng.
  */
 import "server-only";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { IMAGE_LINE } from "@/lib/content/markup";
 import { pageBySlug } from "@/lib/content/pages";
-import { parseCategoryDraft, writePublicCategoryContent, type CategoryContent } from "@/lib/server/admin-catalog";
+import { PENDING_CATEGORY_NAME, ensurePendingCategory, parseCategoryDraft, writePublicCategoryContent, type CategoryContent } from "@/lib/server/admin-catalog";
 import { productSearchText } from "@/lib/server/catalog-seed";
 import { findContentImage, imageMarkup, prepareImageFile } from "@/lib/server/content-images";
 import { getDb, getDbPath, withTransaction } from "@/lib/server/db";
 import { IMAGE_ROLES, ImageRejectedError, type ImageRole } from "@/lib/server/image-pipeline";
 import { discardStoredImage, readStoredImage, writeStoredImage } from "@/lib/server/images";
-import { PRODUCT_GALLERY_MAX, validatePackage, type ImgRef, type PkgIssue, type PkgItem, type SeoPatch } from "@/lib/server/package/manifest";
+import { PRODUCT_GALLERY_MAX, validatePackage, type ImgRef, type NewProduct, type PkgIssue, type PkgItem, type SeoPatch } from "@/lib/server/package/manifest";
 import { syncNewsPublic, syncPagePublic, syncProductPublic } from "@/lib/server/public-state";
 import { PackageRejectedError, readPackageZip } from "@/lib/server/package/zip";
 import { MAX_VIDEOS_PER_PRODUCT, youtubeThumbUrl, type VideoOrientation, type VideoPlatform } from "@/lib/product-video";
@@ -100,8 +100,10 @@ const CATEGORY_FIELD_LABEL: Record<keyof CategoryContent, string> = {
 function lookupProduct(db: DatabaseSync) {
   const bySlug = db.prepare("SELECT id, name FROM products WHERE slug = ?");
   const bySource = db.prepare("SELECT id, name FROM products WHERE source = ? AND source_code = ?");
+  // Slug trước, rồi nguồn + mã: sản phẩm mới tạo từ gói (có nguồn + mã) vẫn được nhận ra khi nhập lại gói → không tạo trùng.
   return (ref: { slug?: string; source?: string; code?: string }) => {
-    const row = (ref.slug ? bySlug.get(ref.slug) : bySource.get(ref.source ?? "", ref.code ?? "")) as { id: string; name: string } | undefined;
+    const row = ((ref.slug ? bySlug.get(ref.slug) : undefined) ??
+      (ref.source && ref.code ? bySource.get(ref.source, ref.code) : undefined)) as { id: string; name: string } | undefined;
     return row ? { id: row.id, label: row.name } : null;
   };
 }
@@ -425,6 +427,14 @@ export type PlanItem = {
   existingVideos: number;
   /** SEO sau khi áp gói; null khi không xác định (mục lỗi). */
   seo: SeoValues | null;
+  /** Sản phẩm MỚI: tạo trong “Danh mục chờ” (Ẩn). null = cập nhật sản phẩm đã có / không phải sản phẩm. */
+  create: {
+    category: string;
+    slug: string;
+    brand: string;
+    variant: { sku: string; price: number; compareAtPrice: number | null; stock: number } | null;
+    missing: string[];
+  } | null;
 };
 
 type ProductDraft = {
@@ -476,9 +486,54 @@ function computePlan(db: DatabaseSync, stored: Stored, imgs: ImageMap): PlanItem
       videos: [],
       existingVideos: 0,
       seo: null,
+      create: null,
     };
     const newInline = item.inline.filter((p) => !imgs.get(`bai|${p}`)?.reused).length;
     if (newInline) plan.notes.push(`${newInline} ảnh mới trong bài.`);
+
+    if (item.kind === "san_pham" && item.create) {
+      // ── Sản phẩm MỚI → “Danh mục chờ”, Ẩn ──
+      const c = item.create;
+      plan.action = "new";
+      plan.title = c.name;
+      plan.summary = item.summary;
+      plan.create = { category: PENDING_CATEGORY_NAME, slug: c.slug, brand: c.brand, variant: c.variant, missing: c.missing };
+      plan.changes.push(`Sản phẩm mới trong “${PENDING_CATEGORY_NAME}” (Ẩn)`);
+      plan.notes.push("Chỉ thấy trong quản trị cho tới khi chọn danh mục chính thức và Hiện. Lưu nháp hay Công khai đều tạo sản phẩm ở trạng thái Ẩn.");
+      plan.seo = applySeoPatch(NO_SEO, item.seo);
+      // Trùng trong CSDL (có thể phát sinh sau lúc tải gói lên): slug, nguồn + mã, SKU.
+      if (db.prepare("SELECT 1 FROM products WHERE slug = ?").get(c.slug)) plan.errors.push(`Slug “${c.slug}” đã thuộc sản phẩm khác.`);
+      if (c.source && c.code && db.prepare("SELECT 1 FROM products WHERE source = ? AND source_code = ?").get(c.source, c.code))
+        plan.errors.push(`Nguồn ${c.source}/${c.code} đã thuộc sản phẩm khác.`);
+      if (c.variant && db.prepare("SELECT 1 FROM product_variants WHERE sku = ? COLLATE NOCASE").get(c.variant.sku))
+        plan.errors.push(`SKU “${c.variant.sku}” đã thuộc sản phẩm khác.`);
+      const seen = new Set<string>();
+      for (const ref of [item.cover, ...item.gallery]) {
+        if (!ref || seen.has(ref.path)) continue;
+        seen.add(ref.path);
+        const info = imgs.get(`sp:${item.productId}|${ref.path}`);
+        if (!info) continue;
+        const pi = { url: url(info.fileName), alt: ref.alt, isNew: true };
+        if (ref === item.cover) plan.cover = pi;
+        else plan.gallery.push(pi);
+      }
+      if (seen.size) plan.changes.push(`${seen.size} ảnh sản phẩm`);
+      (item.videos ?? []).forEach((v, i) => {
+        const info = v.cover ? imgs.get(`vb:${item.productId}|${v.cover}`) : undefined;
+        plan.videos.push({
+          title: v.title,
+          url: v.url,
+          platform: v.platform,
+          orientation: v.orientation,
+          coverUrl: info ? url(info.fileName) : v.platform === "youtube" ? youtubeThumbUrl(v.videoId) : null,
+          coverFromPackage: !!info,
+          action: "add",
+          position: i + 1,
+        });
+      });
+      if (plan.videos.length) plan.changes.push(`${plan.videos.length} video`);
+      return plan;
+    }
 
     if (item.kind === "san_pham") {
       const row = db
@@ -964,8 +1019,39 @@ function applyProductItem(
     ...(plan.seo ?? {}),
     ...(videos?.length ? { videos } : {}),
   };
-  if (mode === "publish") applyProductDraft(db, item.productId, draft, { setVisible: true });
+  if (item.create) {
+    // Sản phẩm MỚI: tạo trong “Danh mục chờ” ở trạng thái Ẩn rồi áp nội dung ngay (khách không thấy, không cần bản nháp).
+    const id = createPendingProduct(db, item.create, item.summary ?? "");
+    applyProductDraft(db, id, draft, { setVisible: false });
+    const slug = item.create.slug;
+    plan.adminPath = `/admin/san-pham/${id}`;
+    plan.publicPath = `/san-pham/${slug}`;
+    return;
+  }
+  // Sản phẩm ĐÃ CÓ: giữ nguyên danh mục và trạng thái Ẩn/Hiện (kể cả khi chọn Công khai).
+  if (mode === "publish") applyProductDraft(db, item.productId, draft, { setVisible: false });
   else db.prepare("UPDATE products SET content_draft_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(draft), nowIso(), item.productId);
+}
+
+/**
+ * Tạo sản phẩm mới từ gói: “Danh mục chờ”, Ẩn. Phiên bản chỉ tạo khi gói ghi đủ SKU, giá bán, tồn kho (đã kiểm tra theo quy
+ * tắc form); thiếu thì để trống cho quản trị bổ sung — KHÔNG tự điền giá hay tồn kho.
+ */
+function createPendingProduct(db: DatabaseSync, c: NewProduct, summary: string): string {
+  const categoryId = ensurePendingCategory(db);
+  const id = `sp-${randomBytes(4).toString("hex")}`;
+  const t = nowIso();
+  db.prepare(
+    `INSERT INTO products (id, slug, name, brand, category_id, short_description, description, option_names_json, placeholder_tone,
+                           placeholder_icon, is_visible, search_text, source, source_code, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, '', '[]', 'slate', 'shopping-bag', 0, ?, ?, ?, ?, ?)`,
+  ).run(id, c.slug, c.name, c.brand, categoryId, summary, productSearchText(c.name, c.brand, c.slug), c.source, c.code, t, t);
+  if (c.variant)
+    db.prepare(
+      `INSERT INTO product_variants (product_id, sku, options_json, options_key, price, compare_at_price, stock, position, is_active)
+       VALUES (?, ?, '{}', '', ?, ?, ?, 0, 1)`,
+    ).run(id, c.variant.sku, c.variant.price, c.variant.compareAtPrice, c.variant.stock);
+  return id;
 }
 
 function applyNewsItem(db: DatabaseSync, item: Extract<PkgItem, { kind: "tin_tuc" }>, plan: PlanItem, imgs: ImageMap, mode: CommitMode, username: string) {

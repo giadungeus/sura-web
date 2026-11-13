@@ -245,9 +245,14 @@ export function PackageImportClient({ vars, hiddenPaths, pending }: { vars: Reco
                 <label className="flex items-start gap-2">
                   <input type="radio" name="mode" checked={mode === "publish"} onChange={() => setMode("publish")} className="mt-1 accent-neutral-900" />
                   <span>
-                    <b>Công khai</b> — thay nội dung khách đang thấy; trang/tin tức được hiện, sản phẩm được chuyển sang <b>Hiện</b>.
+                    <b>Công khai</b> — thay nội dung khách đang thấy; trang/tin tức được hiện. Sản phẩm đã có giữ nguyên danh mục và
+                    Ẩn/Hiện.
                   </span>
                 </label>
+                <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+                  Với cả hai cách, sản phẩm <b>mới</b> được tạo trong <b>“Danh mục chờ”</b> ở trạng thái <b>Ẩn</b>. Vào{" "}
+                  <b>Sản phẩm → lọc “Danh mục chờ”</b> để chọn danh mục chính thức, bổ sung giá/tồn kho rồi Hiện.
+                </p>
               </fieldset>
               <button
                 type="button"
@@ -312,6 +317,24 @@ function PreviewItem({ item, vars, hiddenPaths }: { item: PlanItem; vars: Record
             {item.publicPath}
           </a>
         </p>
+      )}
+      {item.create && (
+        <div className="space-y-1 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
+          <p className="font-medium">
+            Tạo sản phẩm mới trong “{item.create.category}” · trạng thái Ẩn · slug <code>{item.create.slug}</code>
+            {item.create.brand && <> · thương hiệu {item.create.brand}</>}
+          </p>
+          <p className="text-xs">
+            {item.create.variant
+              ? `SKU ${item.create.variant.sku} · giá bán ${item.create.variant.price.toLocaleString("vi-VN")} ₫${
+                  item.create.variant.compareAtPrice ? ` (niêm yết ${item.create.variant.compareAtPrice.toLocaleString("vi-VN")} ₫)` : ""
+                } · tồn kho ${item.create.variant.stock}`
+              : "Gói chưa có giá bán, tồn kho, SKU — sản phẩm được tạo chưa có phiên bản (không tự điền giá hay tồn kho)."}
+          </p>
+          <p className="text-xs font-medium text-amber-800">
+            Quản trị cần bổ sung trước khi Hiện: {item.create.missing.join(", ")}.
+          </p>
+        </div>
       )}
       {item.changes.length > 0 && <p className="text-sm text-neutral-700">Thay đổi: {item.changes.join(", ")}.</p>}
       {item.notes.length > 0 && <p className="text-xs text-neutral-500">{item.notes.join(" ")}</p>}

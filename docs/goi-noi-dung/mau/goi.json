@@ -13,14 +13,61 @@
       "seo_title": "(MẪU) Sạc dự phòng 10000mAh sạc nhanh 20W",
       "seo_description": "",
       "bai_viet": "bai/sac-du-phong-mau.md",
-      "anh_dai_dien": { "tep": "anh/sac-du-phong-dai-dien.jpg", "alt": "Sạc dự phòng 10000mAh mẫu đặt trên bàn" },
+      "anh_dai_dien": {
+        "tep": "anh/sac-du-phong-dai-dien.jpg",
+        "alt": "Sạc dự phòng 10000mAh mẫu đặt trên bàn"
+      },
       "anh_san_pham": [
-        { "tep": "anh/sac-du-phong-cong-sac.jpg", "alt": "Các cổng sạc ở cạnh sạc dự phòng mẫu" }
+        {
+          "tep": "anh/sac-du-phong-cong-sac.jpg",
+          "alt": "Các cổng sạc ở cạnh sạc dự phòng mẫu"
+        }
       ],
       "video_san_pham": [
-        { "tieu_de": "(MẪU) Video YouTube có ảnh bìa trong gói", "url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ", "anh_bia": "anh/video-mau-bia.jpg" },
-        { "tieu_de": "(MẪU) Video YouTube dùng ảnh khung hình của YouTube", "url": "https://youtu.be/jNQXAC9IVRw" },
-        { "tieu_de": "(MẪU) Video TikTok", "url": "https://www.tiktok.com/@scout2015/video/6718335390845095173" }
+        {
+          "tieu_de": "(MẪU) Video YouTube có ảnh bìa trong gói",
+          "url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+          "anh_bia": "anh/video-mau-bia.jpg"
+        },
+        {
+          "tieu_de": "(MẪU) Video YouTube dùng ảnh khung hình của YouTube",
+          "url": "https://youtu.be/jNQXAC9IVRw"
+        },
+        {
+          "tieu_de": "(MẪU) Video TikTok",
+          "url": "https://www.tiktok.com/@scout2015/video/6718335390845095173"
+        }
+      ]
+    },
+    {
+      "loai": "san_pham",
+      "nguon": "mau",
+      "ma_san_pham": "MAU-PB-20K",
+      "slug": "mau-sac-du-phong-20000mah-pd-30w",
+      "tieu_de": "(MẪU) Sạc dự phòng 20000mAh PD 30W — sản phẩm mới",
+      "thuong_hieu": "Mẫu",
+      "mo_ta_ngan": "(MẪU) Sản phẩm mới tạo từ gói: vào Danh mục chờ, trạng thái Ẩn.",
+      "sku": "MAU-PB-20K",
+      "gia_ban": 590000,
+      "gia_niem_yet": 690000,
+      "ton_kho": 25,
+      "bai_viet": "bai/san-pham-moi-mau.md",
+      "anh_dai_dien": {
+        "tep": "anh/sac-du-phong-dai-dien.jpg",
+        "alt": "Sạc dự phòng 20000mAh mẫu đặt trên bàn"
+      },
+      "anh_san_pham": [
+        {
+          "tep": "anh/sac-du-phong-cong-sac.jpg",
+          "alt": "Các cổng sạc của sạc dự phòng mẫu"
+        }
+      ],
+      "video_san_pham": [
+        {
+          "tieu_de": "(MẪU) Video giới thiệu sản phẩm mới",
+          "url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+          "anh_bia": "anh/video-mau-bia.jpg"
+        }
       ]
     },
     {
@@ -30,7 +77,10 @@
       "mo_ta_ngan": "Bài mẫu minh hoạ định dạng gói nội dung: tiêu đề mục, bảng, danh sách và ảnh có chú thích.",
       "seo_description": "(MẪU) Cách đọc công suất, chuẩn sạc và độ dài trên thông số cáp sạc trước khi mua.",
       "bai_viet": "bai/tin-doc-thong-so-cap.md",
-      "anh_dai_dien": { "tep": "anh/tin-anh-bia.jpg", "alt": "Ảnh bìa minh hoạ bài viết về cáp sạc" }
+      "anh_dai_dien": {
+        "tep": "anh/tin-anh-bia.jpg",
+        "alt": "Ảnh bìa minh hoạ bài viết về cáp sạc"
+      }
     },
     {
       "loai": "trang",

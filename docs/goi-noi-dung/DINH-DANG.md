@@ -3,6 +3,8 @@
 > Khớp với chức năng **Quản trị → Nhập gói** đã triển khai. Website kiểm tra đúng các quy tắc dưới đây.
 >
 > Cập nhật 13/11/2026: sản phẩm nhận thêm `video_san_pham` (mục 2.2.1). Vẫn là **phiên bản 1** — gói cũ không có khoá này nhập như trước.
+>
+> Cập nhật 13/11/2026 (bổ sung): gói **tạo được sản phẩm mới** vào “Danh mục chờ” (mục 2.2.2). Sản phẩm đã có giữ nguyên danh mục và Ẩn/Hiện kể cả khi chọn Công khai.
 
 Tài liệu cho người soạn gói (Mimi). Một gói là **một tệp ZIP** chứa bài viết và ảnh. Quản trị tải gói lên
 **Quản trị → Nhập gói nội dung**, xem trước, chọn **Lưu nháp** (mặc định) hoặc **Công khai**, rồi xác nhận.
@@ -61,10 +63,10 @@ anh/                  ← ảnh dùng trong gói
 
 ### 2.2 Bài sản phẩm — `"loai": "san_pham"`
 
-Gói **chỉ viết bài cho sản phẩm đã có** (tạo bằng nhập CSV hoặc trong quản trị). Gói không tạo sản phẩm mới
-và **không bao giờ đổi giá, tồn kho, SKU, phiên bản hay danh mục**.
+Một mục `san_pham` **cập nhật sản phẩm đã có**, hoặc **tạo sản phẩm mới** nếu website chưa có sản phẩm đó (mục 2.2.2).
+Với sản phẩm đã có, gói **không bao giờ đổi giá, tồn kho, SKU, phiên bản, danh mục hay trạng thái Ẩn/Hiện**.
 
-Nhận diện sản phẩm theo **một** trong hai cách:
+Nhận diện sản phẩm theo `slug`, hoặc cặp `nguon` + `ma_san_pham` (có thể ghi cả hai — website tìm theo `slug` trước, rồi theo `nguon` + `ma_san_pham`):
 
 ```json
 { "loai": "san_pham", "nguon": "techmall", "ma_san_pham": "A81B6H11", … }
@@ -73,14 +75,54 @@ Nhận diện sản phẩm theo **một** trong hai cách:
 
 | Khoá riêng | Ghi chú |
 |---|---|
-| `nguon` + `ma_san_pham` | Giống cột `nguon`, `ma_san_pham` của file CSV |
-| `slug` | Đường dẫn sản phẩm hiện có (`/san-pham/<slug>`) |
+| `nguon` + `ma_san_pham` | Nguồn hàng và mã của nguồn (vd. `techmall` / `A81B6H11`). Nên ghi cho sản phẩm mới để lần nhập sau nhận ra đúng sản phẩm |
+| `slug` | Đường dẫn sản phẩm (`/san-pham/<slug>`) |
 | `anh_san_pham` | Ảnh thêm vào bộ ảnh sản phẩm: `[{ "tep": "anh/….jpg", "alt": "…" }]`. Tổng ảnh của sản phẩm tối đa 10 |
 | `video_san_pham` | Không bắt buộc. Video YouTube/TikTok thêm vào hàng **Video sản phẩm** — xem mục 2.2.1 |
 
 `anh_dai_dien` của sản phẩm trở thành ảnh đại diện; `bai_viet` thay phần **Mô tả sản phẩm** (tối đa 20.000 ký tự); `mo_ta_ngan` thay mô tả ngắn; `tieu_de` (nếu có) thay tên sản phẩm.
 
 > Trang sản phẩm **không còn khối “Điểm nổi bật”** riêng. Muốn nêu điểm nổi bật, viết thành một phần trong `bai_viet` (vd. `## Điểm nổi bật` kèm danh sách).
+
+#### 2.2.2 Sản phẩm mới — vào “Danh mục chờ”
+
+Nếu website **chưa có** sản phẩm theo `slug` / `nguon` + `ma_san_pham`, mục `san_pham` sẽ **tạo sản phẩm mới**:
+
+- Sản phẩm được tạo trong danh mục **“Danh mục chờ”** (website tự tạo một lần, luôn Ẩn), ở trạng thái **Ẩn** — chỉ thấy trong quản trị, dù xác nhận bằng **Lưu nháp** hay **Công khai**.
+- Bài mô tả, ảnh đại diện, ảnh sản phẩm, video và SEO đi kèm như sản phẩm đã có.
+- Màn hình xem trước ghi rõ **“Tạo mới trong Danh mục chờ”**, khác với **“Cập nhật”** sản phẩm đã có. Chỉ khi quản trị bấm xác nhận thì sản phẩm mới được tạo.
+- Nhập lại cùng gói: sản phẩm đã tạo được nhận ra (theo `slug` hoặc `nguon` + `ma_san_pham`) và **cập nhật**, không tạo trùng; vẫn giữ danh mục và trạng thái hiện tại.
+
+```json
+{
+  "loai": "san_pham",
+  "nguon": "techmall", "ma_san_pham": "PB-20K-01",
+  "slug": "sac-du-phong-20000mah-pd-30w",
+  "tieu_de": "Sạc dự phòng 20000mAh PD 30W",
+  "thuong_hieu": "Baseus",
+  "mo_ta_ngan": "Sạc nhanh 30W, 2 cổng USB-C.",
+  "sku": "PB-20K-01", "gia_ban": 590000, "gia_niem_yet": 690000, "ton_kho": 25,
+  "bai_viet": "bai/sac-20k.md",
+  "anh_dai_dien": { "tep": "anh/sac-20k.jpg", "alt": "Sạc dự phòng 20000mAh màu đen" },
+  "video_san_pham": [ { "tieu_de": "Mở hộp", "url": "https://www.youtube.com/watch?v=…" } ]
+}
+```
+
+| Khoá (chỉ khi tạo mới) | Bắt buộc | Quy tắc (giống form “Thêm sản phẩm” trong quản trị) |
+|---|---|---|
+| `tieu_de` | **Có** | Tên sản phẩm 2–150 ký tự |
+| `slug` | Không | Chữ thường không dấu, số, `-`. Bỏ trống → tạo từ `tieu_de` |
+| `thuong_hieu` | Không | Tối đa 60 ký tự |
+| `mo_ta_ngan` | Không | Tối đa 300 ký tự |
+| `sku`, `gia_ban`, `ton_kho` | Không — nhưng **ghi đủ cả ba hoặc bỏ cả ba** | SKU 2–40 ký tự in hoa, số, `-`, `_`, không trùng sản phẩm khác; giá bán số nguyên 1.000–10.000.000.000 ₫; tồn kho 0–1.000.000. Giá có thể ghi `590000` hoặc `"590.000"` |
+| `gia_niem_yet` | Không | Lớn hơn `gia_ban` |
+
+- **Không ghi giá/tồn kho/SKU**: sản phẩm vẫn được tạo nhưng **chưa có phiên bản**. Website **không tự điền** giá hay tồn kho; xem trước và trang sửa sản phẩm ghi rõ “còn thiếu: Giá bán, Tồn kho, SKU”.
+- Với sản phẩm **đã có**, các khoá `thuong_hieu`, `sku`, `gia_ban`, `gia_niem_yet`, `ton_kho` bị bỏ qua (kèm cảnh báo).
+
+**Sau khi nhập** — quản trị vào **Sản phẩm**, bấm nút lọc **“Danh mục chờ”**, mở từng sản phẩm:
+1. Chọn **danh mục chính thức**, bổ sung giá bán / tồn kho / SKU nếu còn thiếu, bấm **Lưu**.
+2. Bấm **Hiện sản phẩm**. Website không cho Hiện khi sản phẩm còn ở “Danh mục chờ” hoặc chưa có giá/tồn kho.
 
 #### 2.2.1 Video sản phẩm — `video_san_pham`
 
@@ -264,16 +306,18 @@ ZIP có mật khẩu, ZIP lồng nhau, liên kết tượng trưng, tên tệp c
 |---|---|---|
 | Trang, tin tức đang công khai | Lưu thành bản nháp, khách vẫn thấy bản cũ | Thay bản khách đang thấy |
 | Trang, tin tức chưa công khai | Lưu nội dung, vẫn ẩn | Hiện trên website |
-| Sản phẩm (Ẩn hoặc Hiện) | Lưu **bản nháp riêng** của sản phẩm; khách vẫn thấy bài cũ, trạng thái Ẩn/Hiện giữ nguyên. Vào **Sản phẩm → sửa** để **Áp dụng bản nháp** hoặc **Bỏ** | Thay bài khách đang thấy và chuyển sản phẩm sang **Hiện** |
+| Sản phẩm đã có (Ẩn hoặc Hiện) | Lưu **bản nháp riêng** của sản phẩm; khách vẫn thấy bài cũ, trạng thái Ẩn/Hiện giữ nguyên. Vào **Sản phẩm → sửa** để **Áp dụng bản nháp** hoặc **Bỏ** | Thay bài khách đang thấy; **giữ nguyên danh mục và Ẩn/Hiện** |
+| Sản phẩm mới (mục 2.2.2) | Tạo trong **“Danh mục chờ”**, **Ẩn** | Như Lưu nháp: tạo trong **“Danh mục chờ”**, **Ẩn** |
 
-Với mọi lựa chọn: **không đổi giá, tồn kho, SKU, phiên bản, danh mục**. Nhập lại cùng gói: không tạo trùng bài hay ảnh (ảnh giống hệt được dùng lại).
+Với sản phẩm đã có: **không đổi giá, tồn kho, SKU, phiên bản, danh mục, Ẩn/Hiện**. Nhập lại cùng gói: không tạo trùng sản phẩm, danh mục, bài hay ảnh (ảnh giống hệt được dùng lại).
 
 ## 7. Kiểm tra nhanh trước khi gửi gói
 
 - [ ] `goi.json` ở gốc ZIP, đúng `dinh_dang` và `phien_ban`.
 - [ ] Mọi `bai_viet`, `tep` trỏ đúng tệp có trong ZIP (phân biệt chữ hoa/thường).
 - [ ] Mọi ảnh có `alt`.
-- [ ] Sản phẩm đã có trên website (đúng `nguon` + `ma_san_pham` hoặc `slug`).
+- [ ] Sản phẩm cần cập nhật: đúng `slug` hoặc `nguon` + `ma_san_pham` của sản phẩm đã có (ghi sai sẽ thành **tạo sản phẩm mới** — kiểm tra kỹ ở bước xem trước).
+- [ ] Sản phẩm mới: có `tieu_de`; nên có `nguon` + `ma_san_pham`; `sku`, `gia_ban`, `ton_kho` ghi đủ cả ba hoặc bỏ cả ba.
 - [ ] `video_san_pham` (nếu có): mỗi video có `tieu_de`, `url` là link YouTube/TikTok đầy đủ (không phải mã nhúng, không phải link TikTok rút gọn); `anh_bia` trỏ đúng ảnh trong `anh/`.
 - [ ] Danh mục: đúng `slug` danh mục đã có; chỉ ghi các trường muốn đổi (bỏ hẳn khoá để giữ nguyên, `""` để xoá).
 - [ ] Không ghi giá, tồn kho, khuyến mại hay cam kết chưa được duyệt.

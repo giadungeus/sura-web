@@ -6,7 +6,8 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { IMAGE_LINE } from "@/lib/content/markup";
 import { CONTENT_BODY_MAX, CONTENT_TITLE_MAX, CONTENT_PAGES } from "@/lib/content/pages";
-import { SLUG_MAX_LENGTH, SLUG_PATTERN } from "@/lib/slug";
+import { SLUG_MAX_LENGTH, SLUG_PATTERN, slugify } from "@/lib/slug";
+import { checkNewProductFields } from "@/lib/server/admin-catalog";
 import { decodeText } from "@/lib/server/package/zip";
 import { SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, normalizeSeoText } from "@/lib/seo-text";
 import { MAX_VIDEOS_PER_PRODUCT, VIDEO_TITLE_MAX, parseVideoUrl, type VideoOrientation, type VideoPlatform } from "@/lib/product-video";
@@ -46,6 +47,8 @@ export type PkgItem =
       gallery: ImgRef[];
       /** Khoá "video_san_pham" vắng mặt → undefined: giữ nguyên video hiện có (gói cũ, lượt nhập lưu trước đây). */
       videos?: PkgVideo[];
+      /** Có khi sản phẩm CHƯA tồn tại: tạo mới trong “Danh mục chờ” (productId = "new:<slug>"). */
+      create?: NewProduct;
     })
   | (Base & { kind: "tin_tuc"; slug: string; title: string; summary: string; cover: ImgRef | null })
   | (Base & { kind: "trang"; slug: string; title: string })
@@ -54,6 +57,80 @@ export type PkgItem =
    * Chuỗi rỗng → xoá (mô tả ngắn / nội dung chi tiết rỗng; SEO về mặc định).
    */
   | (Base & { kind: "danh_muc"; slug: string; categoryId: number; summary?: string; bodyGiven: boolean });
+
+/**
+ * Sản phẩm mới từ gói. variant null = gói chưa có giá/tồn kho/SKU → tạo sản phẩm chưa có phiên bản, quản trị bổ sung
+ * (KHÔNG tự điền giá hay tồn kho). missing: các trường bắt buộc còn thiếu để công khai.
+ */
+export type NewProduct = {
+  slug: string;
+  name: string;
+  brand: string;
+  source: string | null;
+  code: string | null;
+  variant: { sku: string; price: number; compareAtPrice: number | null; stock: number } | null;
+  missing: string[];
+};
+/** Mã tạm của sản phẩm mới trong gói (không trùng mã thật: mã thật không có dấu “:”). */
+export const NEW_PRODUCT_PREFIX = "new:";
+/** Khoá chỉ dùng khi TẠO sản phẩm mới; với sản phẩm đã có thì bỏ qua (gói không đổi giá/tồn kho/SKU/thương hiệu). */
+const CREATE_ONLY_KEYS = ["thuong_hieu", "sku", "gia_ban", "gia_niem_yet", "ton_kho"] as const;
+
+/** Số nguyên từ số hoặc chuỗi số (cho phép “1.290.000”); undefined = không có khoá; NaN = sai kiểu. */
+function intField(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v === "number") return Number.isInteger(v) ? v : Number.NaN;
+  if (typeof v === "string" && /^\d{1,3}([.,]?\d{3})*$|^\d+$/.test(v.trim())) return Number(v.trim().replace(/[.,]/g, ""));
+  return Number.NaN;
+}
+
+function newProduct(
+  m: Record<string, unknown>,
+  title: string,
+  summary: string,
+  ref: { slug?: string; source?: string; code?: string },
+  err: (message: string) => void,
+): NewProduct | undefined {
+  const where = ref.slug ? `slug “${ref.slug}”` : `${ref.source}/${ref.code}`;
+  if (!title) {
+    err(`Chưa có sản phẩm ${where} trên website → gói sẽ TẠO MỚI, cần "tieu_de" (tên sản phẩm).`);
+    return undefined;
+  }
+  const slug = (ref.slug ?? slugify(title)).toLowerCase();
+  const brand = oneLine(m.thuong_hieu);
+  const price = intField(m.gia_ban);
+  const compare = intField(m.gia_niem_yet);
+  const stock = intField(m.ton_kho);
+  const sku = str(m.sku).toUpperCase();
+  const given = { sku: !!sku, price: price !== undefined, stock: stock !== undefined };
+  const anyGiven = given.sku || given.price || given.stock || compare !== undefined;
+  const label = { sku: '"sku"', price: '"gia_ban"', stock: '"ton_kho"' };
+  if (anyGiven && !(given.sku && given.price && given.stock)) {
+    const lack = (Object.keys(given) as (keyof typeof given)[]).filter((k) => !given[k]).map((k) => label[k]);
+    err(`Sản phẩm mới: đã ghi một phần giá/tồn kho — ghi đủ "sku", "gia_ban", "ton_kho" (thiếu ${lack.join(", ")}), hoặc bỏ cả để bổ sung sau trong quản trị.`);
+    return undefined;
+  }
+  const variant = anyGiven ? { sku, price: price!, compareAtPrice: compare ?? null, stock: stock! } : null;
+  const errs = checkNewProductFields({
+    name: title,
+    slug,
+    brand,
+    shortDescription: summary,
+    variant: variant && {
+      sku: variant.sku,
+      price: Number.isNaN(variant.price) ? null : variant.price,
+      compareAtPrice: variant.compareAtPrice !== null && Number.isNaN(variant.compareAtPrice) ? Number.MAX_SAFE_INTEGER : variant.compareAtPrice,
+      stock: Number.isNaN(variant.stock) ? null : variant.stock,
+    },
+  });
+  if (errs.length) {
+    errs.forEach((e) => err(`Sản phẩm mới ${where}: ${e}`));
+    return undefined;
+  }
+  const missing = ["Danh mục chính thức"];
+  if (!variant) missing.push("Giá bán", "Tồn kho", "SKU");
+  return { slug, name: title, brand, source: ref.source ?? null, code: ref.code ?? null, variant, missing };
+}
 
 export type PkgIssue = { item: number | null; message: string };
 export type ValidatedPackage = {
@@ -270,12 +347,17 @@ export function validatePackage(
     if (kind === "san_pham") {
       const ref = { slug: str(m.slug) || undefined, source: str(m.nguon) || undefined, code: str(m.ma_san_pham) || undefined };
       if (!ref.slug && !(ref.source && ref.code)) return err('Sản phẩm cần "slug" hoặc cặp "nguon" + "ma_san_pham".');
-      const product = lookupProduct(ref);
-      if (!product) {
-        return err(
-          `Không tìm thấy sản phẩm ${ref.slug ? `slug “${ref.slug}”` : `${ref.source}/${ref.code}`}. Gói chỉ cập nhật sản phẩm đã có.`,
-        );
+      const found = lookupProduct(ref);
+      // Không tìm thấy → sản phẩm MỚI (tạo trong “Danh mục chờ”, Ẩn) — kiểm tra theo quy tắc form tạo sản phẩm.
+      let create: NewProduct | undefined;
+      if (!found) {
+        create = newProduct(m, title, summary, ref, err);
+        if (!create) return;
+      } else {
+        const ignored = CREATE_ONLY_KEYS.filter((k) => hasKey(k));
+        if (ignored.length) warn(`Sản phẩm đã có: gói không đổi giá, tồn kho, SKU hay thương hiệu — bỏ qua ${ignored.map((k) => `"${k}"`).join(", ")}.`);
       }
+      const product = found ?? { id: `${NEW_PRODUCT_PREFIX}${create!.slug}`, label: create!.name };
       once(`sp:${product.id}`, `Sản phẩm ${product.label}`);
       const cover = imageRef(m.anh_dai_dien, '"anh_dai_dien"');
       const galleryRaw = m.anh_san_pham ?? [];
@@ -296,6 +378,7 @@ export function validatePackage(
         cover,
         gallery,
         ...(videos ? { videos } : {}),
+        ...(create ? { create } : {}),
         seo,
       });
     } else if (kind === "tin_tuc") {

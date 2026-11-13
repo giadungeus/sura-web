@@ -82,7 +82,7 @@ async function Content({ params }: Pick<Props, "params">) {
                 .join(" và ")}. Hãy chuyển sản phẩm sang danh mục khác (hoặc xoá sản phẩm chưa có đơn) và xử lý các danh mục con trước; hoặc dùng “Ẩn” trong form trên.`
             : null
         }
-        note="Danh mục không còn sản phẩm hay danh mục con. Nhập CSV lần sau có tên danh mục này sẽ tạo lại danh mục."
+        note="Danh mục không còn sản phẩm hay danh mục con."
       />
     </>
   );

@@ -339,7 +339,79 @@ export function deleteCategory(id: number): SaveResult {
   });
 }
 
+// ═════════════════════════ DANH MỤC CHỜ ═════════════════════════
+
+/**
+ * “Danh mục chờ”: nơi sản phẩm MỚI tạo từ gói nội dung nằm (ở trạng thái Ẩn) cho tới khi quản trị chọn danh mục chính thức.
+ * Đúng một danh mục, nhận diện theo slug; luôn Ẩn trên cửa hàng.
+ */
+export const PENDING_CATEGORY_SLUG = "danh-muc-cho";
+export const PENDING_CATEGORY_NAME = "Danh mục chờ";
+
+export function findPendingCategoryId(db: DatabaseSync = getDb()): number | null {
+  return (db.prepare("SELECT id FROM categories WHERE slug = ?").get(PENDING_CATEGORY_SLUG) as { id: number } | undefined)?.id ?? null;
+}
+
+/** Tạo (nếu chưa có) hoặc dùng lại Danh mục chờ. Gọi trong giao dịch. */
+export function ensurePendingCategory(db: DatabaseSync): number {
+  const found = findPendingCategoryId(db);
+  if (found !== null) return found;
+  const t = now();
+  const r = db
+    .prepare(
+      `INSERT INTO categories (slug, name, description, icon, parent_id, attributes_json, sort_order, is_visible, created_at, updated_at)
+       VALUES (?, ?, ?, 'shopping-bag', NULL, '[]', 9999, 0, ?, ?)`,
+    )
+    .run(PENDING_CATEGORY_SLUG, PENDING_CATEGORY_NAME, "Sản phẩm mới từ gói nội dung, chờ chọn danh mục chính thức.", t, t);
+  return Number(r.lastInsertRowid);
+}
+
+const isPendingCategory = (db: DatabaseSync, categoryId: number | null) => categoryId !== null && categoryId === findPendingCategoryId(db);
+
+/** Điều còn thiếu để một sản phẩm được Hiện (dùng cho cảnh báo trong quản trị). */
+export function productPublishBlockers(productId: string, db: DatabaseSync = getDb()): string[] {
+  const p = db.prepare("SELECT category_id FROM products WHERE id = ?").get(productId) as { category_id: number } | undefined;
+  if (!p) return [];
+  const out: string[] = [];
+  if (isPendingCategory(db, p.category_id)) out.push("Danh mục chính thức (đang ở “Danh mục chờ”)");
+  const v = db.prepare("SELECT COUNT(*) n FROM product_variants WHERE product_id = ? AND is_active = 1").get(productId) as { n: number };
+  if (v.n === 0) out.push("Giá bán, tồn kho và SKU (chưa có phiên bản nào)");
+  return out;
+}
+
+/**
+ * Kiểm tra thông tin sản phẩm MỚI từ gói theo đúng quy tắc của form tạo sản phẩm (tên, slug, thương hiệu, mô tả ngắn,
+ * SKU, giá, tồn kho). Không kiểm tra trùng trong CSDL (làm ở bước xem trước). Trả về thông báo lỗi theo trường.
+ */
+export function checkNewProductFields(f: {
+  name: string;
+  slug: string;
+  brand: string;
+  shortDescription: string;
+  variant: { sku: string; price: number | null; compareAtPrice: number | null; stock: number | null } | null;
+}): string[] {
+  const errs: string[] = [];
+  if (f.name.length < 2) errs.push("Tên sản phẩm (\"tieu_de\") cần ít nhất 2 ký tự.");
+  else if (f.name.length > 150) errs.push("Tên sản phẩm tối đa 150 ký tự.");
+  if (!f.slug || f.slug.length > SLUG_MAX_LENGTH || !SLUG_PATTERN.test(f.slug)) errs.push("Slug chỉ gồm chữ thường không dấu, số và dấu gạch ngang.");
+  if (f.brand.length > 60) errs.push("Thương hiệu tối đa 60 ký tự.");
+  if (f.shortDescription.length > 300) errs.push("Mô tả ngắn tối đa 300 ký tự.");
+  const v = f.variant;
+  if (v) {
+    if (!SKU_PATTERN.test(v.sku)) errs.push("SKU gồm 2–40 ký tự in hoa, số, “-” hoặc “_”.");
+    if (v.price === null || v.price < PRICE_MIN || v.price > PRICE_MAX) errs.push("Giá bán là số nguyên từ 1.000 đến 10.000.000.000 ₫.");
+    if (v.compareAtPrice !== null && (v.compareAtPrice > PRICE_MAX || v.price === null || v.compareAtPrice <= v.price))
+      errs.push("Giá niêm yết phải lớn hơn giá bán (hoặc bỏ trống).");
+    if (v.stock === null || v.stock < 0 || v.stock > STOCK_MAX) errs.push("Tồn kho là số nguyên từ 0 đến 1.000.000.");
+  }
+  return errs;
+}
+
 // ═════════════════════════ SẢN PHẨM ═════════════════════════
+
+export function getProductName(id: string): string | null {
+  return (getDb().prepare("SELECT name FROM products WHERE id = ?").get(id) as { name: string } | undefined)?.name ?? null;
+}
 
 export type ProductStatusFilter = "hien" | "an" | "het-hang";
 
@@ -618,6 +690,8 @@ export function saveProduct(
     errors.highlights = "Tối đa 10 điểm nổi bật, mỗi dòng tối đa 200 ký tự.";
   if (categoryId === null || !db.prepare("SELECT 1 FROM categories WHERE id = ?").get(categoryId))
     errors.categoryId = "Vui lòng chọn danh mục.";
+  else if (isVisible && isPendingCategory(db, categoryId))
+    errors.categoryId = "Sản phẩm đang ở “Danh mục chờ”: chọn danh mục chính thức trước khi hiện trên cửa hàng.";
 
   // ── Thuộc tính biến thể ──
   let optionNames: string[] = [];
@@ -923,6 +997,10 @@ export function deleteProduct(id: string): { ok: true; message: string; files: s
 }
 
 export function setProductVisibility(id: string, visible: boolean): SaveResult {
+  if (visible) {
+    const blockers = productPublishBlockers(id);
+    if (blockers.length) return { ok: false, message: `Chưa thể hiện sản phẩm — còn thiếu: ${blockers.join("; ")}. Mở sản phẩm để bổ sung.` };
+  }
   const r = withTransaction((tx) => {
     const t = now();
     const res = tx.prepare("UPDATE products SET is_visible = ?, updated_at = ? WHERE id = ?").run(visible ? 1 : 0, t, id);

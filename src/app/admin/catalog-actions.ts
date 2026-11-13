@@ -7,6 +7,7 @@ import {
   VariantWriteError,
   deleteCategory,
   deleteProduct,
+  getProductName,
   saveCategoryContent,
   recordUploadedImage,
   saveCategory,
@@ -27,6 +28,7 @@ async function requireAdmin(returnTo: string) {
 }
 
 const PRODUCT_ID = /^[a-z0-9-]{1,40}$/;
+const productNameOf = (id: string) => getProductName(id) ?? id;
 
 export type FormState = { ok?: boolean; message?: string; fieldErrors?: FieldErrors; at?: number };
 
@@ -124,8 +126,43 @@ export async function deleteProductAction(_prev: FormState, formData: FormData):
 export async function toggleProductAction(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "");
   await requireAdmin(PRODUCT_ID.test(id) ? `/admin/san-pham/${id}` : "/admin/san-pham");
-  if (PRODUCT_ID.test(id)) setProductVisibility(id, formData.get("visible") === "1");
+  if (!PRODUCT_ID.test(id)) return;
+  const r = setProductVisibility(id, formData.get("visible") === "1");
+  // Chưa đủ điều kiện hiện (Danh mục chờ / chưa có giá, tồn kho): mở trang sửa, nơi ghi rõ điều còn thiếu.
+  if (!r.ok) redirect(`/admin/san-pham/${id}?chua-hien=1`);
   refresh();
+}
+
+/**
+ * Xoá nhiều sản phẩm đã chọn (trang danh sách). Mỗi sản phẩm đi qua đúng quy tắc xoá hiện có (deleteProduct: chặn sản phẩm
+ * đã có trong đơn, còn ảnh CSV đang chờ…); sản phẩm không xoá được được báo kèm lý do, các sản phẩm khác vẫn xoá.
+ */
+export type BulkDeleteResult = { ok: boolean; deleted: number; failed: { id: string; name: string; message: string }[]; message: string };
+export async function deleteProductsAction(ids: string[]): Promise<BulkDeleteResult> {
+  const session = await getAdminSession();
+  if (!session) return { ok: false, deleted: 0, failed: [], message: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." };
+  const list = [...new Set((Array.isArray(ids) ? ids : []).map(String))].filter((id) => PRODUCT_ID.test(id)).slice(0, 100);
+  if (!list.length) return { ok: false, deleted: 0, failed: [], message: "Chưa chọn sản phẩm nào." };
+  let deleted = 0;
+  const failed: BulkDeleteResult["failed"] = [];
+  const files: string[] = [];
+  for (const id of list) {
+    try {
+      const r = deleteProduct(id);
+      if (r.ok) {
+        deleted++;
+        files.push(...r.files);
+      } else failed.push({ id, name: productNameOf(id), message: r.message });
+    } catch (error) {
+      console.error("[admin] Lỗi xoá sản phẩm:", id, error instanceof Error ? error.message : error);
+      failed.push({ id, name: productNameOf(id), message: "Lỗi hệ thống khi xoá; sản phẩm này chưa bị xoá." });
+    }
+  }
+  // Chỉ xoá tệp ảnh sau khi CSDL đã xoá xong.
+  for (const f of files) await discardStoredImage(f);
+  refresh();
+  const message = `Đã xoá ${deleted}/${list.length} sản phẩm.${failed.length ? ` ${failed.length} sản phẩm không xoá được.` : ""}`;
+  return { ok: failed.length === 0, deleted, failed, message };
 }
 
 export type UploadResult = { ok: true; image: AdminImage } | { ok: false; message: string };
