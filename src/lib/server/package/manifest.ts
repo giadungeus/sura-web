@@ -9,6 +9,7 @@ import { CONTENT_BODY_MAX, CONTENT_TITLE_MAX, CONTENT_PAGES } from "@/lib/conten
 import { SLUG_MAX_LENGTH, SLUG_PATTERN } from "@/lib/slug";
 import { decodeText } from "@/lib/server/package/zip";
 import { SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, normalizeSeoText } from "@/lib/seo-text";
+import { MAX_VIDEOS_PER_PRODUCT, VIDEO_TITLE_MAX, parseVideoUrl, type VideoOrientation, type VideoPlatform } from "@/lib/product-video";
 
 export const PACKAGE_FORMAT = "sura-goi-noi-dung";
 export const PACKAGE_VERSION = 1;
@@ -19,6 +20,15 @@ export const PRODUCT_GALLERY_MAX = 10;
 const ALT_MAX = 200;
 
 export type ImgRef = { path: string; alt: string };
+/** Video sản phẩm trong gói (chuẩn hoá bằng bộ phân tích link dùng chung với quản trị). cover: ảnh bìa trong anh/ (tuỳ chọn). */
+export type PkgVideo = {
+  title: string;
+  url: string;
+  platform: VideoPlatform;
+  videoId: string;
+  orientation: VideoOrientation;
+  cover: string | null;
+};
 /**
  * SEO trong gói: khoá vắng mặt → undefined (giữ giá trị đang lưu); chuỗi có nội dung → đặt mới;
  * chuỗi rỗng/chỉ khoảng trắng → null (xoá, quay về mặc định). Sai kiểu (kể cả null) là lỗi.
@@ -27,7 +37,16 @@ export type ImgRef = { path: string; alt: string };
 export type SeoPatch = { title?: string | null; description?: string | null };
 type Base = { index: number; label: string; bodyPath: string; body: string; inline: string[]; seo?: SeoPatch };
 export type PkgItem =
-  | (Base & { kind: "san_pham"; productId: string; name: string | null; summary: string | null; cover: ImgRef | null; gallery: ImgRef[] })
+  | (Base & {
+      kind: "san_pham";
+      productId: string;
+      name: string | null;
+      summary: string | null;
+      cover: ImgRef | null;
+      gallery: ImgRef[];
+      /** Khoá "video_san_pham" vắng mặt → undefined: giữ nguyên video hiện có (gói cũ, lượt nhập lưu trước đây). */
+      videos?: PkgVideo[];
+    })
   | (Base & { kind: "tin_tuc"; slug: string; title: string; summary: string; cover: ImgRef | null })
   | (Base & { kind: "trang"; slug: string; title: string })
   /**
@@ -193,6 +212,61 @@ export function validatePackage(
       else seenTargets.set(key, n);
     };
 
+    /** "video_san_pham": danh sách { tieu_de, url, anh_bia? } — báo lỗi theo từng video. */
+    const productVideos = (v: unknown): PkgVideo[] => {
+      if (!Array.isArray(v)) {
+        err('"video_san_pham" phải là danh sách (bỏ hẳn khoá này để giữ nguyên video hiện có).');
+        return [];
+      }
+      if (v.length > MAX_VIDEOS_PER_PRODUCT) err(`"video_san_pham" tối đa ${MAX_VIDEOS_PER_PRODUCT} video.`);
+      const out: PkgVideo[] = [];
+      const seenIds = new Map<string, number>();
+      v.forEach((raw, vi) => {
+        const at = `"video_san_pham" thứ ${vi + 1}`;
+        if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return err(`${at}: phải có dạng { "tieu_de": …, "url": … }.`);
+        const o = raw as Record<string, unknown>;
+        let ok = true;
+        const fail = (message: string) => {
+          err(`${at}: ${message}`);
+          ok = false;
+        };
+        const title = oneLine(o.tieu_de);
+        if (title.length < 2) fail('thiếu "tieu_de" (vd. “Hướng dẫn kết nối”).');
+        else if (title.length > VIDEO_TITLE_MAX) fail(`"tieu_de" tối đa ${VIDEO_TITLE_MAX} ký tự.`);
+        const parsed = parseVideoUrl(typeof o.url === "string" ? o.url : "");
+        if (!parsed.ok)
+          fail(
+            parsed.shortTikTok
+              ? '"url" là link TikTok rút gọn (vt./vm.tiktok.com) — dùng link đầy đủ dạng tiktok.com/@tên-tài-khoản/video/…'
+              : `"url" — ${parsed.message}`,
+          );
+        let cover: string | null = null;
+        if (o.anh_bia !== undefined && o.anh_bia !== null && o.anh_bia !== "") {
+          const p = str(o.anh_bia);
+          if (!/^anh\/.+\.(jpe?g|png|webp)$/.test(p)) fail(`"anh_bia" “${p}” phải là ảnh trong thư mục anh/.`);
+          else if (!files.has(p)) fail(`không tìm thấy ảnh bìa ${p} trong ZIP.`);
+          else {
+            cover = p;
+            used.add(p);
+            if (!images.has(p)) images.set(p, createHash("sha256").update(files.get(p)!).digest("hex"));
+          }
+        }
+        if (!ok || !parsed.ok) return;
+        const key = `${parsed.video.platform}:${parsed.video.videoId}`;
+        if (seenIds.has(key)) return err(`${at}: trùng video thứ ${seenIds.get(key)} của cùng sản phẩm.`);
+        seenIds.set(key, vi + 1);
+        out.push({
+          title,
+          url: parsed.video.sourceUrl,
+          platform: parsed.video.platform,
+          videoId: parsed.video.videoId,
+          orientation: parsed.video.orientation,
+          cover,
+        });
+      });
+      return out;
+    };
+
     if (kind === "san_pham") {
       const ref = { slug: str(m.slug) || undefined, source: str(m.nguon) || undefined, code: str(m.ma_san_pham) || undefined };
       if (!ref.slug && !(ref.source && ref.code)) return err('Sản phẩm cần "slug" hoặc cặp "nguon" + "ma_san_pham".');
@@ -208,6 +282,7 @@ export function validatePackage(
       if (!Array.isArray(galleryRaw)) return err('"anh_san_pham" phải là danh sách.');
       if (galleryRaw.length > PRODUCT_GALLERY_MAX) err(`"anh_san_pham" tối đa ${PRODUCT_GALLERY_MAX} ảnh.`);
       const gallery = galleryRaw.map((g, gi) => imageRef(g, `"anh_san_pham" thứ ${gi + 1}`)).filter((g): g is ImgRef => g !== null);
+      const videos = hasKey("video_san_pham") ? productVideos(m.video_san_pham) : undefined;
       result.items.push({
         kind: "san_pham",
         index: n,
@@ -220,6 +295,7 @@ export function validatePackage(
         inline,
         cover,
         gallery,
+        ...(videos ? { videos } : {}),
         seo,
       });
     } else if (kind === "tin_tuc") {
@@ -249,7 +325,7 @@ export function validatePackage(
         if (typeof m.mo_ta_ngan !== "string") err('"mo_ta_ngan" phải là chuỗi ("" để xoá mô tả ngắn). Bỏ hẳn khoá này để giữ nguyên.');
         else summary = oneLine(m.mo_ta_ngan);
       }
-      for (const k of ["tieu_de", "anh_dai_dien", "anh_san_pham"])
+      for (const k of ["tieu_de", "anh_dai_dien", "anh_san_pham", "video_san_pham"])
         if (hasKey(k)) warn(`Danh mục không đổi tên hay ảnh qua gói — bỏ qua "${k}".`);
       if (summary === undefined && !bodyGiven && seo.title === undefined && seo.description === undefined)
         warn("Mục danh mục không có trường nào để cập nhật.");

@@ -42,6 +42,18 @@ export function ProductDraftBox({
               ))}
             </div>
           )}
+          {draft.videos.length > 0 && (
+            <div className="rounded-lg bg-neutral-50 p-2 text-xs text-neutral-700">
+              <p className="font-medium">Video sẽ nối thêm khi áp dụng (bỏ qua video đã có):</p>
+              <ol className="mt-1 list-decimal space-y-0.5 pl-5">
+                {draft.videos.map((v) => (
+                  <li key={v.url}>
+                    {v.title} <span className="text-neutral-500">· {v.platform === "youtube" ? "YouTube" : "TikTok"}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
           <RichText source={draft.description} vars={vars} hiddenPaths={hiddenPaths} />
         </div>
       </details>

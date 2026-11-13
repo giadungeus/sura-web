@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Check, ShieldCheck, Truck } from "lucide-react";
+import { ShieldCheck, Truck } from "lucide-react";
 import { RichText } from "@/components/content/rich-text";
 import { JsonLd } from "@/components/seo/json-ld";
 import { getSiteChrome, getSiteSettings } from "@/lib/server/site-content";
@@ -159,20 +159,7 @@ async function ProductContent({ params }: Pick<Props, "params">) {
             </div>
           </section>
 
-          {product.highlights.length > 0 && (
-            <section className="space-y-3">
-              <h2 className="text-lg font-semibold">Điểm nổi bật</h2>
-              <ul className="space-y-2">
-                {product.highlights.map((h) => (
-                  <li key={h} className="flex gap-2 text-neutral-700">
-                    <Check className="mt-1 size-4 shrink-0 text-emerald-600" aria-hidden />
-                    {h}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
+          {/* Khối “Điểm nổi bật” đã bỏ: dữ liệu highlights vẫn giữ, nội dung nổi bật biên tập trong bài mô tả khi cần. */}
           {specRows.length > 0 && (
             <section className="space-y-3">
               <h2 className="text-lg font-semibold">Thông số</h2>

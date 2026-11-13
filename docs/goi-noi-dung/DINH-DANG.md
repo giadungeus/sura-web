@@ -1,6 +1,8 @@
 # Định dạng gói nội dung Sura — phiên bản 1
 
 > Khớp với chức năng **Quản trị → Nhập gói** đã triển khai. Website kiểm tra đúng các quy tắc dưới đây.
+>
+> Cập nhật 13/11/2026: sản phẩm nhận thêm `video_san_pham` (mục 2.2.1). Vẫn là **phiên bản 1** — gói cũ không có khoá này nhập như trước.
 
 Tài liệu cho người soạn gói (Mimi). Một gói là **một tệp ZIP** chứa bài viết và ảnh. Quản trị tải gói lên
 **Quản trị → Nhập gói nội dung**, xem trước, chọn **Lưu nháp** (mặc định) hoặc **Công khai**, rồi xác nhận.
@@ -74,8 +76,34 @@ Nhận diện sản phẩm theo **một** trong hai cách:
 | `nguon` + `ma_san_pham` | Giống cột `nguon`, `ma_san_pham` của file CSV |
 | `slug` | Đường dẫn sản phẩm hiện có (`/san-pham/<slug>`) |
 | `anh_san_pham` | Ảnh thêm vào bộ ảnh sản phẩm: `[{ "tep": "anh/….jpg", "alt": "…" }]`. Tổng ảnh của sản phẩm tối đa 10 |
+| `video_san_pham` | Không bắt buộc. Video YouTube/TikTok thêm vào hàng **Video sản phẩm** — xem mục 2.2.1 |
 
 `anh_dai_dien` của sản phẩm trở thành ảnh đại diện; `bai_viet` thay phần **Mô tả sản phẩm** (tối đa 20.000 ký tự); `mo_ta_ngan` thay mô tả ngắn; `tieu_de` (nếu có) thay tên sản phẩm.
+
+> Trang sản phẩm **không còn khối “Điểm nổi bật”** riêng. Muốn nêu điểm nổi bật, viết thành một phần trong `bai_viet` (vd. `## Điểm nổi bật` kèm danh sách).
+
+#### 2.2.1 Video sản phẩm — `video_san_pham`
+
+```json
+"video_san_pham": [
+  { "tieu_de": "Hướng dẫn kết nối", "url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ", "anh_bia": "anh/video-ket-noi.jpg" },
+  { "tieu_de": "Trải nghiệm thực tế", "url": "https://www.youtube.com/shorts/xxxxxxxxxxx" },
+  { "tieu_de": "Mở hộp", "url": "https://www.tiktok.com/@ten-tai-khoan/video/7300000000000000000" }
+]
+```
+
+| Khoá | Bắt buộc | Ghi chú |
+|---|---|---|
+| `tieu_de` | Có | 2–100 ký tự, hiện dưới ảnh bìa video (tối đa 2 dòng) |
+| `url` | Có | **Chỉ link**, không dán mã nhúng/iframe. Nhận: YouTube (`watch?v=`, `youtu.be/`, `/shorts/`, `/embed/`, `/live/`) và TikTok dạng đầy đủ `tiktok.com/@tài-khoản/video/<mã>`. Link TikTok rút gọn (`vt.`/`vm.tiktok.com`) **không** nhận trong gói |
+| `anh_bia` | Không | Đường dẫn ảnh trong `anh/` của ZIP (JPEG/PNG/WebP), không cần `alt`. Bỏ trống → video YouTube dùng ảnh khung hình của YouTube; video TikTok hiện thẻ có nút phát (có thể lấy/tải ảnh bìa sau trong trang sửa sản phẩm) |
+
+- **Thứ tự**: đúng thứ tự trong mảng, **nối vào sau** các video sản phẩm đang có. Video đang có giữ nguyên (không xoá, không đổi tiêu đề/thứ tự).
+- **Trùng**: so theo nền tảng + mã video đã chuẩn hoá (vd. `youtu.be/ID`, `watch?v=ID` là cùng một video). Video đã có trên sản phẩm → **bỏ qua**; nhập lại cùng gói không tạo video trùng. Hai video trùng nhau trong cùng một mục → lỗi.
+- **Không có khoá `video_san_pham`** → giữ nguyên video hiện có (gói cũ vẫn dùng được, `phien_ban` vẫn là `1`). Mảng rỗng `[]` cũng không xoá gì — muốn xoá video, dùng trang sửa sản phẩm.
+- Tổng video của một sản phẩm tối đa **10** (kể cả video đã có).
+- Lỗi được báo **theo từng video**, ví dụ: `"video_san_pham" thứ 2: thiếu "tieu_de"`, `"url" — Chỉ hỗ trợ video YouTube hoặc TikTok`, `không tìm thấy ảnh bìa anh/… trong ZIP`.
+- Video đi theo cùng lựa chọn với bài sản phẩm: **Lưu nháp** → video chỉ hiện khi **Áp dụng bản nháp**; **Công khai** → hiện ngay.
 
 ### 2.3 Tin tức — `"loai": "tin_tuc"`
 
@@ -220,6 +248,7 @@ Gợi ý đọc tốt trên điện thoại: đoạn văn ngắn (2–4 câu); b
 | `goi.json`, tệp `.md` | 512 KB/tệp, UTF-8 |
 | Ảnh | 5 MB/ảnh đầu vào; tổng sau giải nén ≤ 40 MB |
 | Ảnh sản phẩm | tổng tối đa 10 ảnh/sản phẩm (kể cả ảnh đã có) |
+| Video sản phẩm | tổng tối đa 10 video/sản phẩm (kể cả video đã có) |
 
 ZIP có mật khẩu, ZIP lồng nhau, liên kết tượng trưng, tên tệp có `..` hoặc ký tự lạ, tỉ lệ nén bất thường (“ZIP bomb”) đều bị từ chối.
 
@@ -227,7 +256,7 @@ ZIP có mật khẩu, ZIP lồng nhau, liên kết tượng trưng, tên tệp c
 
 1. **Tải lên** → hệ thống kiểm tra ZIP, `goi.json`, đường dẫn tệp, ảnh và bài viết; báo lỗi theo từng mục.
 2. **Xử lý ảnh** theo từng lượt ngắn (có tiến độ). Đóng trang giữa chừng thì mở lại **Nhập gói** và bấm **Tiếp tục**; lượt chờ quá 24 giờ tự bị bỏ và dọn ảnh tạm.
-3. **Xem trước**: mỗi mục ghi **Tạo mới / Cập nhật / Giữ nguyên**, trường nào thay đổi, ảnh mới hay dùng lại, và hiển thị bài đúng như trên website (có chế độ xem khổ điện thoại).
+3. **Xem trước**: mỗi mục ghi **Tạo mới / Cập nhật / Giữ nguyên**, trường nào thay đổi, ảnh mới hay dùng lại, và hiển thị bài đúng như trên website (có chế độ xem khổ điện thoại). Mục sản phẩm ghi **sản phẩm đích** và danh sách video: thứ tự, tiêu đề, ảnh bìa, video nào **Thêm · vị trí N** hay **Bỏ qua · đã có**.
 4. **Xác nhận** với **Lưu nháp** (mặc định) hoặc **Công khai**. Ghi tất cả trong một lần — lỗi giữa chừng thì không ghi gì; bấm lại không ghi trùng. Mục “Giữ nguyên” (không có gì mới) được bỏ qua. **Bỏ lượt nhập** xoá ảnh tạm, không đổi nội dung.
 5. Bài nhập xong vẫn sửa được ở **Trang nội dung**, **Tin tức**, **Sản phẩm**.
 
@@ -245,6 +274,7 @@ Với mọi lựa chọn: **không đổi giá, tồn kho, SKU, phiên bản, da
 - [ ] Mọi `bai_viet`, `tep` trỏ đúng tệp có trong ZIP (phân biệt chữ hoa/thường).
 - [ ] Mọi ảnh có `alt`.
 - [ ] Sản phẩm đã có trên website (đúng `nguon` + `ma_san_pham` hoặc `slug`).
+- [ ] `video_san_pham` (nếu có): mỗi video có `tieu_de`, `url` là link YouTube/TikTok đầy đủ (không phải mã nhúng, không phải link TikTok rút gọn); `anh_bia` trỏ đúng ảnh trong `anh/`.
 - [ ] Danh mục: đúng `slug` danh mục đã có; chỉ ghi các trường muốn đổi (bỏ hẳn khoá để giữ nguyên, `""` để xoá).
 - [ ] Không ghi giá, tồn kho, khuyến mại hay cam kết chưa được duyệt.
 - [ ] `seo_title`/`seo_description` (nếu có) là chuỗi; muốn quay về mặc định thì ghi `""`, không ghi `null`.

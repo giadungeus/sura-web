@@ -300,6 +300,49 @@ export function writeVideos(db: DatabaseSync, productId: string, videos: ValidVi
   return [...oldCovers].filter((f) => !stillUsed.get(f));
 }
 
+/** Video cần nối thêm (từ gói nội dung): đã chuẩn hoá bằng parseVideoUrl. */
+export type AppendVideo = {
+  title: string;
+  url: string;
+  platform: ParsedVideoUrl["platform"];
+  videoId: string;
+  orientation: VideoOrientation;
+  coverFile: string | null;
+};
+
+/** Khoá so trùng: nền tảng + mã video đã chuẩn hoá. */
+export const videoKey = (platform: string, videoId: string) => `${platform}:${videoId}`;
+
+/** Mã video đã có của sản phẩm (để bỏ qua video trùng khi nhập lại gói). */
+export function existingVideoKeys(db: DatabaseSync, productId: string): Set<string> {
+  return new Set(
+    (db.prepare("SELECT platform, video_id FROM product_videos WHERE product_id = ?").all(productId) as { platform: string; video_id: string }[]).map(
+      (r) => videoKey(r.platform, r.video_id),
+    ),
+  );
+}
+
+/**
+ * Nối video vào CUỐI danh sách hiện có, giữ đúng thứ tự truyền vào; video trùng (cùng nền tảng + mã) bị bỏ qua,
+ * video hiện có giữ nguyên. Gọi trong giao dịch. Vượt tối đa → lỗi (cả giao dịch không ghi).
+ */
+export function appendVideos(db: DatabaseSync, productId: string, videos: AppendVideo[], t: string): { added: number; skipped: number } {
+  const have = existingVideoKeys(db, productId);
+  const fresh = videos.filter((v) => !have.has(videoKey(v.platform, v.videoId)) && !!have.add(videoKey(v.platform, v.videoId)));
+  if (!fresh.length) return { added: 0, skipped: videos.length };
+  if (have.size > MAX_VIDEOS_PER_PRODUCT) throw new Error(`Sản phẩm sẽ có ${have.size} video, vượt tối đa ${MAX_VIDEOS_PER_PRODUCT}.`);
+  let pos = (db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM product_videos WHERE product_id = ?").get(productId) as { p: number }).p;
+  const insert = db.prepare(
+    `INSERT INTO product_videos (product_id, position, platform, video_id, source_url, title, orientation, cover_file, cover_source, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const v of fresh) {
+    const cover = v.coverFile && IMAGE_FILE_PATTERN.test(v.coverFile) ? v.coverFile : null;
+    insert.run(productId, pos++, v.platform, v.videoId, v.url, v.title, v.orientation, cover, cover ? "upload" : "none", t, t);
+  }
+  return { added: fresh.length, skipped: videos.length - fresh.length };
+}
+
 /** Tệp ảnh bìa của sản phẩm (để xoá khỏi đĩa khi xoá hẳn sản phẩm). */
 export function videoCoverFiles(db: DatabaseSync, productId: string): string[] {
   return (db.prepare("SELECT DISTINCT cover_file FROM product_videos WHERE product_id = ? AND cover_file IS NOT NULL").all(productId) as {

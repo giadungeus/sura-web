@@ -22,6 +22,8 @@ import { discardStoredImage, readStoredImage, writeStoredImage } from "@/lib/ser
 import { PRODUCT_GALLERY_MAX, validatePackage, type ImgRef, type PkgIssue, type PkgItem, type SeoPatch } from "@/lib/server/package/manifest";
 import { syncNewsPublic, syncPagePublic, syncProductPublic } from "@/lib/server/public-state";
 import { PackageRejectedError, readPackageZip } from "@/lib/server/package/zip";
+import { MAX_VIDEOS_PER_PRODUCT, youtubeThumbUrl, type VideoOrientation, type VideoPlatform } from "@/lib/product-video";
+import { appendVideos, existingVideoKeys, videoKey, type AppendVideo } from "@/lib/server/product-videos";
 
 const TTL_MS = 24 * 60 * 60 * 1000;
 /** Thời gian tối đa để BẮT ĐẦU ảnh mới trong một lượt (hosting iNET: yêu cầu ngắn). */
@@ -36,7 +38,8 @@ const nowIso = () => new Date().toISOString();
 const ID_PATTERN = /^[0-9a-f-]{36}$/;
 export const isPackageId = (v: unknown): v is string => typeof v === "string" && ID_PATTERN.test(v);
 
-type Target = "bai" | "bia" | `sp:${string}`;
+/** bai: ảnh trong bài · bia: ảnh bìa tin tức · sp:<id>: ảnh sản phẩm · vb:<id>: ảnh bìa video của sản phẩm. */
+type Target = "bai" | "bia" | `sp:${string}` | `vb:${string}`;
 const roleOf = (t: string): ImageRole => (t === "bai" ? "bai" : "bia");
 type Stored = { name: string; author: string; date: string; items: PkgItem[]; images: [string, string][] };
 
@@ -122,6 +125,7 @@ export async function createPackageImport(buf: Buffer, fileName: string, usernam
   for (const item of v.items) {
     for (const p of item.inline) add(p, "bai");
     if (item.kind === "san_pham") for (const img of [item.cover, ...item.gallery]) if (img) add(img.path, `sp:${item.productId}`);
+    if (item.kind === "san_pham") for (const vid of item.videos ?? []) if (vid.cover) add(vid.cover, `vb:${item.productId}`);
     if (item.kind === "tin_tuc" && item.cover) add(item.cover.path, "bia");
   }
 
@@ -240,7 +244,10 @@ async function runJob(batchId: string, job: Job, zipBuf: () => Promise<Buffer>):
   const base = { path: job.zip_path };
   const role = roleOf(job.target);
   // Dùng lại ảnh đã có: không xử lý lại, không lưu thêm tệp.
-  const reuse = job.target.startsWith("sp:")
+  // Ảnh bìa video: luôn có tệp riêng (xoá video sẽ xoá tệp bìa của nó — không được dùng chung tệp với nội dung khác).
+  const reuse = job.target.startsWith("vb:")
+    ? undefined
+    : job.target.startsWith("sp:")
     ? existingProductImage(job.target.slice(3), job.source_sha256)
     : (() => {
         const c = findContentImage(job.source_sha256, role);
@@ -382,6 +389,20 @@ function parseSeoJson(json: string | null | undefined): Partial<SeoValues> | nul
   }
 }
 export type PlanImage = { url: string; alt: string; isNew: boolean };
+/**
+ * Video trong xem trước: position = vị trí sẽ có trong hàng “Video sản phẩm” (1 = đầu), null khi bỏ qua.
+ * coverUrl: ảnh bìa trong gói (đã xử lý) → ảnh khung hình YouTube → null (thẻ nút phát, như trang sản phẩm).
+ */
+export type PlanVideo = {
+  title: string;
+  url: string;
+  platform: VideoPlatform;
+  orientation: VideoOrientation;
+  coverUrl: string | null;
+  coverFromPackage: boolean;
+  action: "add" | "skip";
+  position: number | null;
+};
 export type PlanItem = {
   index: number;
   kind: PkgItem["kind"];
@@ -398,6 +419,10 @@ export type PlanItem = {
   currentBody: string | null;
   cover: PlanImage | null;
   gallery: PlanImage[];
+  /** Video sản phẩm trong gói (rỗng khi gói không có "video_san_pham"). */
+  videos: PlanVideo[];
+  /** Số video sản phẩm đang có (chỉ mục san_pham có video trong gói). */
+  existingVideos: number;
   /** SEO sau khi áp gói; null khi không xác định (mục lỗi). */
   seo: SeoValues | null;
 };
@@ -414,6 +439,8 @@ type ProductDraft = {
   /** Có từ v8; bản nháp cũ không có → áp dụng không đổi SEO. */
   seoTitle?: string;
   seoDescription?: string;
+  /** Video nối thêm khi áp dụng (bỏ qua video trùng lúc áp dụng). Bản nháp cũ/gói không có video → không đổi video. */
+  videos?: AppendVideo[];
 };
 
 function readProductDraft(db: DatabaseSync, productId: string): ProductDraft | null {
@@ -446,6 +473,8 @@ function computePlan(db: DatabaseSync, stored: Stored, imgs: ImageMap): PlanItem
       currentBody: null,
       cover: null,
       gallery: [],
+      videos: [],
+      existingVideos: 0,
       seo: null,
     };
     const newInline = item.inline.filter((p) => !imgs.get(`bai|${p}`)?.reused).length;
@@ -515,6 +544,33 @@ function computePlan(db: DatabaseSync, stored: Stored, imgs: ImageMap): PlanItem
       }
       if (attached.length + added > PRODUCT_GALLERY_MAX)
         plan.errors.push(`Sản phẩm sẽ có ${attached.length + added} ảnh, vượt tối đa ${PRODUCT_GALLERY_MAX}. Bớt ảnh trong gói hoặc xoá ảnh cũ trong trang sửa sản phẩm.`);
+
+      // Video: nối vào sau video hiện có theo thứ tự trong gói; trùng (nền tảng + mã đã chuẩn hoá) → bỏ qua.
+      if (item.videos) {
+        const have = existingVideoKeys(db, row.id);
+        plan.existingVideos = have.size;
+        let next = have.size;
+        for (const v of item.videos) {
+          const dup = have.has(videoKey(v.platform, v.videoId));
+          const info = v.cover ? imgs.get(`vb:${row.id}|${v.cover}`) : undefined;
+          plan.videos.push({
+            title: v.title,
+            url: v.url,
+            platform: v.platform,
+            orientation: v.orientation,
+            coverUrl: info ? url(info.fileName) : v.platform === "youtube" ? youtubeThumbUrl(v.videoId) : null,
+            coverFromPackage: !!info,
+            action: dup ? "skip" : "add",
+            position: dup ? null : ++next,
+          });
+        }
+        const adds = plan.videos.filter((v) => v.action === "add").length;
+        const skips = plan.videos.length - adds;
+        if (adds) plan.changes.push(`${adds} video mới`);
+        if (skips) plan.notes.push(`${skips} video đã có trên sản phẩm — bỏ qua.`);
+        if (next > MAX_VIDEOS_PER_PRODUCT)
+          plan.errors.push(`Sản phẩm sẽ có ${next} video, vượt tối đa ${MAX_VIDEOS_PER_PRODUCT}. Bớt video trong gói hoặc xoá video cũ trong trang sửa sản phẩm.`);
+      }
     } else if (item.kind === "tin_tuc") {
       const row = db.prepare("SELECT * FROM news_posts WHERE slug = ?").get(item.slug) as
         | {
@@ -756,6 +812,8 @@ export function applyProductDraft(db: DatabaseSync, productId: string, draft: Pr
       productId,
     );
   }
+  // Video từ gói: nối sau video hiện có, bỏ qua video đã có (kể cả video được thêm tay sau khi lưu nháp).
+  if (draft.videos?.length) appendVideos(db, productId, draft.videos, nowIso());
   syncProductPublic(db, [productId]);
 }
 
@@ -883,6 +941,17 @@ function applyProductItem(
     }
     images.push({ imageId: row.id, sha: info.sha, alt: ref.alt });
   }
+  // Video: chỉ video sẽ thêm (theo thứ tự gói), kèm tệp ảnh bìa đã xử lý (nếu gói có ảnh bìa).
+  const videos: AppendVideo[] | undefined = item.videos
+    ?.filter((_, i) => plan.videos[i]?.action === "add")
+    .map((v) => ({
+      title: v.title,
+      url: v.url,
+      platform: v.platform,
+      videoId: v.videoId,
+      orientation: v.orientation,
+      coverFile: v.cover ? (imgs.get(`vb:${item.productId}|${v.cover}`)?.fileName ?? null) : null,
+    }));
   const draft: ProductDraft = {
     name: item.name,
     summary: item.summary,
@@ -893,6 +962,7 @@ function applyProductItem(
     savedAt: nowIso(),
     savedBy: username,
     ...(plan.seo ?? {}),
+    ...(videos?.length ? { videos } : {}),
   };
   if (mode === "publish") applyProductDraft(db, item.productId, draft, { setVisible: true });
   else db.prepare("UPDATE products SET content_draft_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(draft), nowIso(), item.productId);
@@ -1007,9 +1077,12 @@ export async function cleanupBatchFiles(batchId: string): Promise<number> {
     .all(batchId) as { file_name: string }[];
   const inContent = db.prepare("SELECT 1 FROM content_images WHERE file_name = ?");
   const inProduct = db.prepare("SELECT 1 FROM product_images WHERE file_name = ?");
+  // Ảnh bìa video: đang gắn với video, hoặc nằm trong bản nháp sản phẩm chờ áp dụng.
+  const inVideo = db.prepare("SELECT 1 FROM product_videos WHERE cover_file = ?");
+  const inDraft = db.prepare("SELECT 1 FROM products WHERE content_draft_json LIKE ? LIMIT 1");
   let removed = 0;
   for (const { file_name } of rows) {
-    if (inContent.get(file_name) || inProduct.get(file_name)) continue;
+    if (inContent.get(file_name) || inProduct.get(file_name) || inVideo.get(file_name) || inDraft.get(`%${file_name}%`)) continue;
     await discardStoredImage(file_name);
     removed++;
   }
@@ -1052,6 +1125,7 @@ export type ProductDraftInfo = {
   summary: string | null;
   description: string;
   images: { url: string; alt: string }[];
+  videos: { title: string; url: string; platform: VideoPlatform }[];
   /** undefined = bản nháp không đổi SEO. */
   seoTitle?: string;
   seoDescription?: string;
@@ -1070,6 +1144,7 @@ export function getProductDraftInfo(productId: string): ProductDraftInfo | null 
     description: d.description,
     seoTitle: d.seoTitle,
     seoDescription: d.seoDescription,
+    videos: (d.videos ?? []).map((v) => ({ title: v.title, url: v.url, platform: v.platform })),
     images: d.images
       .map((i) => ({ f: (file.get(i.imageId) as { file_name: string } | undefined)?.file_name, alt: i.alt }))
       .filter((i): i is { f: string; alt: string } => !!i.f)

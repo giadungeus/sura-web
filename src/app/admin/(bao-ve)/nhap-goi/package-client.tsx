@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, FileArchive, Loader2, Smartphone, Monitor, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileArchive, Loader2, Smartphone, Monitor, Play, XCircle } from "lucide-react";
 import { RichText } from "@/components/content/rich-text";
 import type { PkgIssue } from "@/lib/server/package/manifest";
-import type { CommitMode, CommitSummary, PackagePreview, PlanItem } from "@/lib/server/package/service";
+import type { CommitMode, CommitSummary, PackagePreview, PlanItem, PlanVideo } from "@/lib/server/package/service";
 import { cancelPackageAction, commitPackageAction, getPackagePreviewAction, processPackageImagesAction } from "../../package-actions";
 
 type Pending = { id: string; name: string; fileName: string; createdAt: string };
@@ -305,6 +305,14 @@ function PreviewItem({ item, vars, hiddenPaths }: { item: PlanItem; vars: Record
         </span>
         <span className="font-medium">{item.label}</span>
       </div>
+      {item.kind === "san_pham" && item.publicPath && (
+        <p className="text-xs text-neutral-600">
+          Sản phẩm đích: <span className="font-medium text-neutral-900">{item.label}</span> ·{" "}
+          <a href={item.publicPath} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+            {item.publicPath}
+          </a>
+        </p>
+      )}
       {item.changes.length > 0 && <p className="text-sm text-neutral-700">Thay đổi: {item.changes.join(", ")}.</p>}
       {item.notes.length > 0 && <p className="text-xs text-neutral-500">{item.notes.join(" ")}</p>}
       {item.seo && (
@@ -317,6 +325,7 @@ function PreviewItem({ item, vars, hiddenPaths }: { item: PlanItem; vars: Record
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden /> {item.errors.join(" ")}
         </p>
       )}
+      {item.videos.length > 0 && <VideoPlanList videos={item.videos} existing={item.existingVideos} />}
       <div className="flex flex-wrap gap-2 text-xs">
         <button type="button" onClick={() => setMobile((v) => !v)} className="inline-flex items-center gap-1 rounded-full border border-neutral-300 px-3 py-1">
           {mobile ? <Monitor className="size-3.5" aria-hidden /> : <Smartphone className="size-3.5" aria-hidden />}
@@ -355,6 +364,54 @@ function PreviewItem({ item, vars, hiddenPaths }: { item: PlanItem; vars: Record
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * Video sản phẩm trong gói: thứ tự, ảnh bìa (ảnh trong gói → ảnh khung hình YouTube → thẻ nút phát như trang sản phẩm),
+ * và video nào sẽ thêm (vị trí trong hàng “Video sản phẩm”) hay bỏ qua vì đã có.
+ */
+function VideoPlanList({ videos, existing }: { videos: PlanVideo[]; existing: number }) {
+  return (
+    <div className="space-y-2 rounded-lg bg-neutral-50 p-3">
+      <p className="text-sm font-medium">
+        Video sản phẩm trong gói <span className="font-normal text-neutral-500">· sản phẩm đang có {existing} video, video mới nối vào sau</span>
+      </p>
+      <ol className="space-y-2">
+        {videos.map((v, i) => (
+          <li key={v.url} className="flex items-center gap-3 text-sm">
+            <span className="w-5 shrink-0 text-right text-xs text-neutral-500">{i + 1}.</span>
+            <span className="relative block aspect-video w-28 shrink-0 overflow-hidden rounded-lg bg-neutral-900">
+              {v.coverUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- ảnh bìa đã tối ưu / ảnh YouTube
+                <img src={v.coverUrl} alt="" className="size-full object-cover" />
+              ) : (
+                <span className="absolute inset-x-0 bottom-1 text-center text-[10px] text-white/80">{v.platform === "youtube" ? "YouTube" : "TikTok"}</span>
+              )}
+              <span className="absolute inset-0 flex items-center justify-center">
+                <Play className="size-5 fill-white text-white drop-shadow" aria-hidden />
+              </span>
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="line-clamp-2 font-medium">{v.title}</span>
+              <span className="block text-xs text-neutral-500">
+                {v.platform === "youtube" ? "YouTube" : "TikTok"} · {v.orientation === "portrait" ? "Dọc" : "Ngang"} ·{" "}
+                {v.coverFromPackage ? "ảnh bìa trong gói" : v.coverUrl ? "ảnh khung hình YouTube" : "chưa có ảnh bìa (thẻ nút phát)"}
+              </span>
+            </span>
+            {v.action === "add" ? (
+              <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200 ring-inset">
+                Thêm · vị trí {v.position}
+              </span>
+            ) : (
+              <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600 ring-1 ring-neutral-200 ring-inset">
+                Bỏ qua · đã có
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
