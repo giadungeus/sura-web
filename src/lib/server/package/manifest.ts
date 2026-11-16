@@ -7,7 +7,15 @@ import { createHash } from "node:crypto";
 import { IMAGE_LINE } from "@/lib/content/markup";
 import { CONTENT_BODY_MAX, CONTENT_TITLE_MAX, CONTENT_PAGES } from "@/lib/content/pages";
 import { SLUG_MAX_LENGTH, SLUG_PATTERN, slugify } from "@/lib/slug";
-import { checkNewProductFields } from "@/lib/server/admin-catalog";
+import {
+  MAX_OPTION_GROUPS,
+  MAX_VARIANTS,
+  OPTION_NAME_MAX,
+  OPTION_VALUE_MAX,
+  checkNewProductFields,
+  checkVariantFields,
+} from "@/lib/server/admin-catalog";
+import { optionsKey } from "@/lib/cart-key";
 import { decodeText } from "@/lib/server/package/zip";
 import { SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, normalizeSeoText } from "@/lib/seo-text";
 import { MAX_VIDEOS_PER_PRODUCT, VIDEO_TITLE_MAX, parseVideoUrl, type VideoOrientation, type VideoPlatform } from "@/lib/product-video";
@@ -49,6 +57,8 @@ export type PkgItem =
       videos?: PkgVideo[];
       /** Có khi sản phẩm CHƯA tồn tại: tạo mới trong “Danh mục chờ” (productId = "new:<slug>"). */
       create?: NewProduct;
+      /** Sản phẩm đã có + "bien_the": biến thể đối chiếu theo SKU (thêm / cập nhật / giữ nguyên). */
+      variants?: PkgVariants;
     })
   | (Base & { kind: "tin_tuc"; slug: string; title: string; summary: string; cover: ImgRef | null })
   | (Base & { kind: "trang"; slug: string; title: string })
@@ -68,9 +78,15 @@ export type NewProduct = {
   brand: string;
   source: string | null;
   code: string | null;
-  variant: { sku: string; price: number; compareAtPrice: number | null; stock: number } | null;
+  /** Biến thể từ gói (bộ cũ sku/gia_ban/ton_kho → 1 biến thể không thuộc tính). null = chưa có giá/tồn kho. */
+  variants: PkgVariants | null;
   missing: string[];
 };
+
+/** Một biến thể trong gói. options: { "Chiều dài": "0,25 m", "Màu sắc": "Đen" }; key: khoá chuẩn của bộ thuộc tính (như form). */
+export type PkgVariant = { sku: string; price: number; compareAtPrice: number | null; stock: number; options: Record<string, string>; key: string };
+/** optionNames rỗng = sản phẩm không biến thể (đúng 1 dòng giá/tồn kho). */
+export type PkgVariants = { optionNames: string[]; list: PkgVariant[] };
 /** Mã tạm của sản phẩm mới trong gói (không trùng mã thật: mã thật không có dấu “:”). */
 export const NEW_PRODUCT_PREFIX = "new:";
 /** Khoá chỉ dùng khi TẠO sản phẩm mới; với sản phẩm đã có thì bỏ qua (gói không đổi giá/tồn kho/SKU/thương hiệu). */
@@ -98,38 +114,129 @@ function newProduct(
   }
   const slug = (ref.slug ?? slugify(title)).toLowerCase();
   const brand = oneLine(m.thuong_hieu);
-  const price = intField(m.gia_ban);
-  const compare = intField(m.gia_niem_yet);
-  const stock = intField(m.ton_kho);
-  const sku = str(m.sku).toUpperCase();
-  const given = { sku: !!sku, price: price !== undefined, stock: stock !== undefined };
-  const anyGiven = given.sku || given.price || given.stock || compare !== undefined;
-  const label = { sku: '"sku"', price: '"gia_ban"', stock: '"ton_kho"' };
-  if (anyGiven && !(given.sku && given.price && given.stock)) {
-    const lack = (Object.keys(given) as (keyof typeof given)[]).filter((k) => !given[k]).map((k) => label[k]);
-    err(`Sản phẩm mới: đã ghi một phần giá/tồn kho — ghi đủ "sku", "gia_ban", "ton_kho" (thiếu ${lack.join(", ")}), hoặc bỏ cả để bổ sung sau trong quản trị.`);
-    return undefined;
-  }
-  const variant = anyGiven ? { sku, price: price!, compareAtPrice: compare ?? null, stock: stock! } : null;
-  const errs = checkNewProductFields({
-    name: title,
-    slug,
-    brand,
-    shortDescription: summary,
-    variant: variant && {
-      sku: variant.sku,
-      price: Number.isNaN(variant.price) ? null : variant.price,
-      compareAtPrice: variant.compareAtPrice !== null && Number.isNaN(variant.compareAtPrice) ? Number.MAX_SAFE_INTEGER : variant.compareAtPrice,
-      stock: Number.isNaN(variant.stock) ? null : variant.stock,
-    },
-  });
+  const variants = productVariants(m, err);
+  if (variants === undefined) return undefined;
+  const errs = checkNewProductFields({ name: title, slug, brand, shortDescription: summary, variant: null });
   if (errs.length) {
     errs.forEach((e) => err(`Sản phẩm mới ${where}: ${e}`));
     return undefined;
   }
   const missing = ["Danh mục chính thức"];
-  if (!variant) missing.push("Giá bán", "Tồn kho", "SKU");
-  return { slug, name: title, brand, source: ref.source ?? null, code: ref.code ?? null, variant, missing };
+  if (!variants) missing.push("Giá bán", "Tồn kho", "SKU");
+  return { slug, name: title, brand, source: ref.source ?? null, code: ref.code ?? null, variants, missing };
+}
+
+const LEGACY_VARIANT_KEYS = ["sku", "gia_ban", "gia_niem_yet", "ton_kho"] as const;
+const num = (v: number | undefined) => (v === undefined || Number.isNaN(v) ? null : v);
+
+/**
+ * Biến thể của một mục sản phẩm. Hai cách (chỉ chọn MỘT):
+ * - bộ cũ ở cấp sản phẩm: "sku", "gia_ban", "ton_kho" (+ "gia_niem_yet") → 1 biến thể không thuộc tính;
+ * - "thuoc_tinh": ["Chiều dài", "Màu sắc"] + "bien_the": [{ sku, gia_ban, ton_kho, gia_niem_yet?, thuoc_tinh: { … } }].
+ * Trả về null khi không có cách nào, undefined khi có lỗi (đã báo qua err).
+ */
+function productVariants(m: Record<string, unknown>, err: (message: string) => void): PkgVariants | null | undefined {
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(m, k) && m[k] !== undefined && m[k] !== null && m[k] !== "";
+  const legacy = LEGACY_VARIANT_KEYS.filter(has);
+  const hasList = Object.prototype.hasOwnProperty.call(m, "bien_the");
+  if (legacy.length && hasList) {
+    err(
+      `Mục này ghi cả bộ cũ (${legacy.map((k) => `"${k}"`).join(", ")}) lẫn "bien_the" — chọn MỘT cách: sản phẩm một giá dùng bộ cũ, nhiều biến thể dùng "bien_the".`,
+    );
+    return undefined;
+  }
+  if (hasList) return variantList(m, err);
+  if (!legacy.length) return null;
+  // Bộ cũ: đủ cả sku, gia_ban, ton_kho.
+  const price = intField(m.gia_ban);
+  const compare = intField(m.gia_niem_yet);
+  const stock = intField(m.ton_kho);
+  const sku = str(m.sku).toUpperCase();
+  const lack = [!sku && '"sku"', price === undefined && '"gia_ban"', stock === undefined && '"ton_kho"'].filter(Boolean);
+  if (lack.length) {
+    err(`Đã ghi một phần giá/tồn kho — ghi đủ "sku", "gia_ban", "ton_kho" (thiếu ${lack.join(", ")}), hoặc bỏ cả để bổ sung sau trong quản trị.`);
+    return undefined;
+  }
+  const v = { sku, price: num(price), compareAtPrice: compare === undefined ? null : Number.isNaN(compare) ? Number.MAX_SAFE_INTEGER : compare, stock: num(stock) };
+  const errs = checkVariantFields(v);
+  if (errs.length) {
+    errs.forEach((e) => err(`SKU ${sku}: ${e}`));
+    return undefined;
+  }
+  return { optionNames: [], list: [{ sku, price: v.price!, compareAtPrice: v.compareAtPrice, stock: v.stock!, options: {}, key: "" }] };
+}
+
+function variantList(m: Record<string, unknown>, err: (message: string) => void): PkgVariants | undefined {
+  const raw = m.bien_the;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    err('"bien_the" phải là danh sách có ít nhất 1 biến thể.');
+    return undefined;
+  }
+  if (raw.length > MAX_VARIANTS) {
+    err(`"bien_the" tối đa ${MAX_VARIANTS} biến thể.`);
+    return undefined;
+  }
+  // Tên thuộc tính chọn hàng (giống ô “Thuộc tính” trong form): tối đa 3, không trùng, ≤ 30 ký tự.
+  const namesRaw = m.thuoc_tinh ?? [];
+  if (!Array.isArray(namesRaw)) {
+    err('"thuoc_tinh" phải là danh sách tên thuộc tính, vd. ["Chiều dài", "Màu sắc"].');
+    return undefined;
+  }
+  const optionNames = namesRaw.map((n) => oneLine(n));
+  let ok = true;
+  const fail = (message: string) => {
+    err(message);
+    ok = false;
+  };
+  if (optionNames.some((n) => !n)) fail('"thuoc_tinh" có tên trống.');
+  if (optionNames.length > MAX_OPTION_GROUPS) fail(`"thuoc_tinh" tối đa ${MAX_OPTION_GROUPS} thuộc tính.`);
+  if (optionNames.some((n) => n.length > OPTION_NAME_MAX)) fail(`Tên thuộc tính tối đa ${OPTION_NAME_MAX} ký tự.`);
+  if (new Set(optionNames.map((n) => n.toLowerCase())).size !== optionNames.length) fail('"thuoc_tinh" có tên bị trùng.');
+  if (!optionNames.length && raw.length !== 1)
+    fail('Nhiều biến thể cần "thuoc_tinh" (vd. ["Chiều dài", "Màu sắc"]) và mỗi biến thể ghi "thuoc_tinh" tương ứng.');
+  if (!ok) return undefined;
+
+  const list: PkgVariant[] = [];
+  const seenSku = new Map<string, number>();
+  const seenKey = new Map<string, number>();
+  raw.forEach((rv, i) => {
+    const at = `"bien_the" thứ ${i + 1}`;
+    if (typeof rv !== "object" || rv === null || Array.isArray(rv)) return fail(`${at}: phải có dạng { "sku", "gia_ban", "ton_kho", "thuoc_tinh" }.`);
+    const o = rv as Record<string, unknown>;
+    const sku = str(o.sku).toUpperCase();
+    const label = sku ? `${at} (SKU ${sku})` : at;
+    const price = intField(o.gia_ban);
+    const compare = intField(o.gia_niem_yet);
+    const stock = intField(o.ton_kho);
+    const lack = [!sku && '"sku"', price === undefined && '"gia_ban"', stock === undefined && '"ton_kho"'].filter(Boolean);
+    if (lack.length) return fail(`${label}: thiếu ${lack.join(", ")}.`);
+    const v = { sku, price: num(price), compareAtPrice: compare === undefined ? null : Number.isNaN(compare) ? Number.MAX_SAFE_INTEGER : compare, stock: num(stock) };
+    const errs = checkVariantFields(v);
+    errs.forEach((e) => fail(`${label}: ${e}`));
+    // Thuộc tính: đúng các tên trong "thuoc_tinh", mỗi giá trị 1–40 ký tự.
+    const optRaw = o.thuoc_tinh ?? {};
+    const options: Record<string, string> = {};
+    if (typeof optRaw !== "object" || optRaw === null || Array.isArray(optRaw)) return fail(`${label}: "thuoc_tinh" phải có dạng { "Tên thuộc tính": "giá trị" }.`);
+    const given = optRaw as Record<string, unknown>;
+    const extra = Object.keys(given).filter((k) => !optionNames.some((n) => n.toLowerCase() === k.trim().toLowerCase()));
+    if (extra.length) fail(`${label}: thuộc tính ${extra.map((k) => `“${k}”`).join(", ")} không có trong "thuoc_tinh" của sản phẩm.`);
+    for (const name of optionNames) {
+      const k = Object.keys(given).find((x) => x.trim().toLowerCase() === name.toLowerCase());
+      const value = k ? oneLine(given[k]) : "";
+      if (!value) fail(`${label}: thiếu giá trị “${name}”.`);
+      else if (value.length > OPTION_VALUE_MAX) fail(`${label}: giá trị “${name}” tối đa ${OPTION_VALUE_MAX} ký tự.`);
+      options[name] = value;
+    }
+    if (seenSku.has(sku)) fail(`${label}: SKU trùng với biến thể thứ ${seenSku.get(sku)}.`);
+    else seenSku.set(sku, i + 1);
+    const key = optionsKey(options);
+    if (optionNames.length) {
+      if (seenKey.has(key)) fail(`${label}: tổ hợp ${Object.values(options).join(" / ")} trùng với biến thể thứ ${seenKey.get(key)}.`);
+      else seenKey.set(key, i + 1);
+    }
+    if (!errs.length) list.push({ sku, price: v.price!, compareAtPrice: v.compareAtPrice, stock: v.stock!, options, key });
+  });
+  return ok ? { optionNames, list } : undefined;
 }
 
 export type PkgIssue = { item: number | null; message: string };
@@ -350,12 +457,22 @@ export function validatePackage(
       const found = lookupProduct(ref);
       // Không tìm thấy → sản phẩm MỚI (tạo trong “Danh mục chờ”, Ẩn) — kiểm tra theo quy tắc form tạo sản phẩm.
       let create: NewProduct | undefined;
+      let existingVariants: PkgVariants | undefined;
       if (!found) {
         create = newProduct(m, title, summary, ref, err);
         if (!create) return;
+      } else if (hasKey("bien_the")) {
+        // Sản phẩm đã có + "bien_the": đối chiếu theo SKU ở bước xem trước (thêm / cập nhật / giữ nguyên).
+        const v = productVariants(m, err);
+        if (!v) return;
+        existingVariants = v;
+        if (hasKey("thuong_hieu")) warn('Sản phẩm đã có: gói không đổi thương hiệu — bỏ qua "thuong_hieu".');
       } else {
         const ignored = CREATE_ONLY_KEYS.filter((k) => hasKey(k));
-        if (ignored.length) warn(`Sản phẩm đã có: gói không đổi giá, tồn kho, SKU hay thương hiệu — bỏ qua ${ignored.map((k) => `"${k}"`).join(", ")}.`);
+        if (ignored.length)
+          warn(
+            `Sản phẩm đã có: bộ cũ ${ignored.map((k) => `"${k}"`).join(", ")} bị bỏ qua (gói không đổi giá/tồn kho theo bộ cũ). Muốn cập nhật giá/tồn kho, dùng "bien_the".`,
+          );
       }
       const product = found ?? { id: `${NEW_PRODUCT_PREFIX}${create!.slug}`, label: create!.name };
       once(`sp:${product.id}`, `Sản phẩm ${product.label}`);
@@ -379,6 +496,7 @@ export function validatePackage(
         gallery,
         ...(videos ? { videos } : {}),
         ...(create ? { create } : {}),
+        ...(existingVariants ? { variants: existingVariants } : {}),
         seo,
       });
     } else if (kind === "tin_tuc") {
@@ -417,6 +535,17 @@ export function validatePackage(
       err('"loai" phải là "san_pham", "tin_tuc", "trang" hoặc "danh_muc".');
     }
   });
+
+  // SKU trùng giữa các mục sản phẩm khác nhau trong cùng gói.
+  const skuOwner = new Map<string, number>();
+  for (const it of result.items) {
+    if (it.kind !== "san_pham") continue;
+    for (const v of (it.create?.variants ?? it.variants)?.list ?? []) {
+      const prev = skuOwner.get(v.sku);
+      if (prev !== undefined && prev !== it.index) errors.push({ item: it.index, message: `SKU ${v.sku} đã dùng ở mục ${prev} của gói.` });
+      else skuOwner.set(v.sku, it.index);
+    }
+  }
 
   for (const name of files.keys()) if (!used.has(name)) warnings.push({ item: null, message: `Tệp không được dùng: ${name}` });
   return result;

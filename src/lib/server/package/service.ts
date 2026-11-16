@@ -13,13 +13,31 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { IMAGE_LINE } from "@/lib/content/markup";
 import { pageBySlug } from "@/lib/content/pages";
-import { PENDING_CATEGORY_NAME, ensurePendingCategory, parseCategoryDraft, writePublicCategoryContent, type CategoryContent } from "@/lib/server/admin-catalog";
+import {
+  MAX_VARIANTS,
+  PENDING_CATEGORY_NAME,
+  ensurePendingCategory,
+  parseCategoryDraft,
+  writePublicCategoryContent,
+  type CategoryContent,
+} from "@/lib/server/admin-catalog";
 import { productSearchText } from "@/lib/server/catalog-seed";
 import { findContentImage, imageMarkup, prepareImageFile } from "@/lib/server/content-images";
 import { getDb, getDbPath, withTransaction } from "@/lib/server/db";
 import { IMAGE_ROLES, ImageRejectedError, type ImageRole } from "@/lib/server/image-pipeline";
 import { discardStoredImage, readStoredImage, writeStoredImage } from "@/lib/server/images";
-import { PRODUCT_GALLERY_MAX, validatePackage, type ImgRef, type NewProduct, type PkgIssue, type PkgItem, type SeoPatch } from "@/lib/server/package/manifest";
+import {
+  PRODUCT_GALLERY_MAX,
+  validatePackage,
+  type ImgRef,
+  type NewProduct,
+  type PkgIssue,
+  type PkgItem,
+  type PkgVariant,
+  type PkgVariants,
+  type SeoPatch,
+} from "@/lib/server/package/manifest";
+import { optionsKey } from "@/lib/cart-key";
 import { syncNewsPublic, syncPagePublic, syncProductPublic } from "@/lib/server/public-state";
 import { PackageRejectedError, readPackageZip } from "@/lib/server/package/zip";
 import { MAX_VIDEOS_PER_PRODUCT, youtubeThumbUrl, type VideoOrientation, type VideoPlatform } from "@/lib/product-video";
@@ -41,7 +59,27 @@ export const isPackageId = (v: unknown): v is string => typeof v === "string" &&
 /** bai: ảnh trong bài · bia: ảnh bìa tin tức · sp:<id>: ảnh sản phẩm · vb:<id>: ảnh bìa video của sản phẩm. */
 type Target = "bai" | "bia" | `sp:${string}` | `vb:${string}`;
 const roleOf = (t: string): ImageRole => (t === "bai" ? "bai" : "bia");
-type Stored = { name: string; author: string; date: string; items: PkgItem[]; images: [string, string][] };
+/** target: mã sản phẩm khi gói được tải lên từ trang sửa sản phẩm (“Cập nhật từ ZIP”); không có = trang Nhập gói. */
+type Stored = { name: string; author: string; date: string; items: PkgItem[]; images: [string, string][]; target?: string };
+
+/**
+ * “Cập nhật từ ZIP” ở trang sửa sản phẩm: gói phải có ĐÚNG MỘT mục, là mục sản phẩm, khớp sản phẩm đang mở.
+ * Kiểm tra lúc tải lên, lúc xem trước và lúc áp dụng. Trả về lỗi hoặc null.
+ */
+function checkTarget(items: PkgItem[], target: string, db: DatabaseSync = getDb()): string | null {
+  const name = (db.prepare("SELECT name FROM products WHERE id = ?").get(target) as { name: string } | undefined)?.name;
+  if (!name) return "Không tìm thấy sản phẩm đang mở.";
+  const others = items.filter((i) => i.kind !== "san_pham");
+  if (others.length) {
+    const kinds = [...new Set(others.map((i) => ({ tin_tuc: "tin tức", trang: "trang nội dung", danh_muc: "danh mục" })[i.kind as "tin_tuc" | "trang" | "danh_muc"]))];
+    return `Gói dùng ở trang sửa sản phẩm chỉ được có mục sản phẩm — gói đang có mục ${kinds.join(", ")}. Hãy dùng Quản trị → Nhập gói.`;
+  }
+  if (items.length !== 1) return `Gói dùng ở trang sửa sản phẩm phải có đúng một mục sản phẩm (gói đang có ${items.length} mục).`;
+  const it = items[0];
+  if (it.kind !== "san_pham" || it.create || it.productId !== target)
+    return `Gói không khớp sản phẩm đang mở (“${name}”): mục trong gói là “${it.label}”${it.kind === "san_pham" && it.create ? " (sản phẩm chưa có — gói sẽ tạo mới)" : ""}. Kiểm tra "slug" hoặc "nguon" + "ma_san_pham".`;
+  return null;
+}
 
 // ═════════════════════ 1. Tải lên & kiểm tra ═════════════════════
 
@@ -108,7 +146,7 @@ function lookupProduct(db: DatabaseSync) {
   };
 }
 
-export async function createPackageImport(buf: Buffer, fileName: string, username: string): Promise<UploadResult> {
+export async function createPackageImport(buf: Buffer, fileName: string, username: string, target?: string): Promise<UploadResult> {
   await cleanupExpiredPackages();
   let zip: Awaited<ReturnType<typeof readPackageZip>>;
   try {
@@ -120,6 +158,11 @@ export async function createPackageImport(buf: Buffer, fileName: string, usernam
   const db = getDb();
   const v = validatePackage(zip.files, zip.ignored, lookupProduct(db), lookupCategory(db));
   if (v.errors.length) return { ok: false, message: "Gói có lỗi, chưa nhập gì. Sửa gói rồi tải lên lại.", errors: v.errors, warnings: v.warnings };
+  // “Cập nhật từ ZIP” ở trang sửa sản phẩm: gói phải đúng một mục sản phẩm, khớp sản phẩm đang mở.
+  if (target) {
+    const targetError = checkTarget(v.items, target, db);
+    if (targetError) return { ok: false, message: `${targetError} Chưa nhập gì.`, warnings: v.warnings };
+  }
 
   // Ảnh cần xử lý: mỗi (ảnh gốc, nơi dùng) một việc. Ảnh sản phẩm tách riêng theo sản phẩm.
   const jobs = new Map<string, { path: string; sha: string; target: Target }>();
@@ -134,7 +177,7 @@ export async function createPackageImport(buf: Buffer, fileName: string, usernam
   const id = randomUUID();
   await mkdir(tempDir(), { recursive: true });
   await writeFile(zipFile(id), buf, { flag: "wx" });
-  const stored: Stored = { name: v.name, author: v.author, date: v.date, items: v.items, images: [...v.images] };
+  const stored: Stored = { name: v.name, author: v.author, date: v.date, items: v.items, images: [...v.images], ...(target ? { target } : {}) };
   try {
     withTransaction((tx) => {
       const now = nowIso();
@@ -432,9 +475,28 @@ export type PlanItem = {
     category: string;
     slug: string;
     brand: string;
-    variant: { sku: string; price: number; compareAtPrice: number | null; stock: number } | null;
     missing: string[];
   } | null;
+  /** Thuộc tính chọn hàng sau khi nhập (vd. ["Chiều dài", "Màu sắc"]); rỗng = không biến thể. */
+  optionNames: string[];
+  /** Biến thể: thêm / cập nhật / giữ nguyên (khớp SKU, không đổi) / giữ (vắng mặt trong gói). Rỗng = gói không đụng tới biến thể. */
+  variants: PlanVariant[];
+  /** Số biến thể ĐÃ CÓ bị đổi giá/tồn kho/thuộc tính → quản trị phải xác nhận riêng. */
+  variantUpdates: number;
+};
+
+export type VariantValues = { price: number; compareAtPrice: number | null; stock: number; options: Record<string, string> };
+export type PlanVariant = {
+  sku: string;
+  action: "add" | "update" | "unchanged" | "keep";
+  /** Giá trị hiện có (cập nhật / giữ nguyên / giữ). */
+  before: VariantValues | null;
+  /** Giá trị sau khi nhập (thêm / cập nhật / giữ nguyên). */
+  after: VariantValues | null;
+  /** Trường đổi (cập nhật), vd. ["Giá bán", "Tồn kho"]. */
+  changed: string[];
+  /** Đã có trong đơn hàng (cập nhật giữ nguyên mã biến thể nên đơn cũ vẫn liên kết đúng). */
+  inOrders: boolean;
 };
 
 type ProductDraft = {
@@ -463,6 +525,88 @@ function readProductDraft(db: DatabaseSync, productId: string): ProductDraft | n
   }
 }
 
+const variantValues = (v: PkgVariant): VariantValues => ({ price: v.price, compareAtPrice: v.compareAtPrice, stock: v.stock, options: v.options });
+
+type ExistingVariantRow = { id: number; sku: string; options_json: string; options_key: string; price: number; compare_at_price: number | null; stock: number };
+const existingVariantRows = (db: DatabaseSync, productId: string) =>
+  db
+    .prepare(
+      `SELECT id, sku, options_json, options_key, price, compare_at_price, stock FROM product_variants
+       WHERE product_id = ? AND is_active = 1 ORDER BY position, id`,
+    )
+    .all(productId) as ExistingVariantRow[];
+
+/**
+ * Đối chiếu biến thể trong gói với sản phẩm ĐÃ CÓ theo SKU (không phân biệt hoa/thường):
+ * - SKU mới → thêm; SKU đã có → giữ nguyên nếu không đổi, cập nhật (cần xác nhận riêng) nếu đổi giá/tồn kho/thuộc tính;
+ * - biến thể đang có mà gói không nhắc tới → giữ.
+ * Chặn: SKU thuộc sản phẩm khác, thuộc tính khác cấu trúc đang dùng, tổ hợp trùng sau khi nhập, vượt số biến thể tối đa.
+ */
+function planExistingVariants(db: DatabaseSync, productId: string, pkg: PkgVariants, plan: PlanItem) {
+  const p = db.prepare("SELECT option_names_json FROM products WHERE id = ?").get(productId) as { option_names_json: string };
+  const curNames = JSON.parse(p.option_names_json) as string[];
+  const rows = existingVariantRows(db, productId);
+  // Cấu trúc thuộc tính phải giống sản phẩm đang dùng (trừ khi sản phẩm chưa có biến thể nào).
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((n, i) => n.toLowerCase() === b[i].toLowerCase());
+  if (rows.length && !same(curNames, pkg.optionNames)) {
+    const set = (a: string[]) => [...a].map((n) => n.toLowerCase()).sort().join("|");
+    if (rows.length && set(curNames) !== set(pkg.optionNames)) {
+      plan.errors.push(
+        `Thuộc tính trong gói (${pkg.optionNames.join(", ") || "không có"}) khác thuộc tính sản phẩm đang dùng (${curNames.join(", ") || "không có"}). Đổi cấu trúc biến thể trong trang sửa sản phẩm trước.`,
+      );
+      return;
+    }
+  }
+  // Dùng đúng tên (và thứ tự) thuộc tính đang có; sản phẩm chưa có biến thể thì lấy theo gói.
+  const names = rows.length ? curNames : pkg.optionNames;
+  const rename = (o: Record<string, string>) => Object.fromEntries(names.map((n) => [n, o[pkg.optionNames.find((x) => x.toLowerCase() === n.toLowerCase()) ?? n] ?? ""]));
+  plan.optionNames = names;
+  const bySku = new Map(rows.map((r) => [r.sku.toUpperCase(), r]));
+  const inOrders = db.prepare("SELECT 1 FROM order_items WHERE variant_id = ? LIMIT 1");
+  const otherOwner = db.prepare("SELECT p.name FROM product_variants v JOIN products p ON p.id = v.product_id WHERE v.sku = ? COLLATE NOCASE AND v.product_id <> ?");
+  const finalKeys = new Map<string, string>(); // khoá tổ hợp → SKU
+  const matched = new Set<number>();
+  for (const v of pkg.list) {
+    const after = { ...variantValues(v), options: rename(v.options) };
+    const owner = otherOwner.get(v.sku, productId) as { name: string } | undefined;
+    if (owner) plan.errors.push(`SKU “${v.sku}” đã thuộc sản phẩm khác (“${owner.name}”).`);
+    const cur = bySku.get(v.sku);
+    if (!cur) {
+      plan.variants.push({ sku: v.sku, action: "add", before: null, after, changed: [], inOrders: false });
+      continue;
+    }
+    matched.add(cur.id);
+    const before: VariantValues = { price: cur.price, compareAtPrice: cur.compare_at_price, stock: cur.stock, options: JSON.parse(cur.options_json) };
+    const changed: string[] = [];
+    if (before.price !== after.price) changed.push("Giá bán");
+    if (before.compareAtPrice !== after.compareAtPrice) changed.push("Giá niêm yết");
+    if (before.stock !== after.stock) changed.push("Tồn kho");
+    if (optionsKey(before.options) !== optionsKey(after.options)) changed.push("Thuộc tính");
+    plan.variants.push({ sku: cur.sku, action: changed.length ? "update" : "unchanged", before, after, changed, inOrders: !!inOrders.get(cur.id) });
+  }
+  for (const r of rows)
+    if (!matched.has(r.id)) {
+      const options = JSON.parse(r.options_json) as Record<string, string>;
+      plan.variants.push({ sku: r.sku, action: "keep", before: { price: r.price, compareAtPrice: r.compare_at_price, stock: r.stock, options }, after: null, changed: [], inOrders: !!inOrders.get(r.id) });
+    }
+  // Tổ hợp thuộc tính phải duy nhất sau khi nhập (giữ + giữ nguyên + cập nhật + thêm).
+  for (const pv of plan.variants) {
+    const opts = (pv.after ?? pv.before)!.options;
+    const key = optionsKey(opts);
+    const prev = finalKeys.get(key);
+    if (prev !== undefined) plan.errors.push(`Tổ hợp ${Object.values(opts).join(" / ") || "(không thuộc tính)"} trùng giữa SKU ${prev} và ${pv.sku}.`);
+    else finalKeys.set(key, pv.sku);
+  }
+  if (plan.variants.length > MAX_VARIANTS) plan.errors.push(`Sản phẩm sẽ có ${plan.variants.length} biến thể, vượt tối đa ${MAX_VARIANTS}.`);
+  if (!names.length && plan.variants.length > 1) plan.errors.push("Sản phẩm không có thuộc tính chọn hàng chỉ có một dòng giá/tồn kho.");
+  const adds = plan.variants.filter((v) => v.action === "add").length;
+  plan.variantUpdates = plan.variants.filter((v) => v.action === "update").length;
+  if (adds) plan.changes.push(`${adds} biến thể mới`);
+  if (plan.variantUpdates) plan.changes.push(`${plan.variantUpdates} biến thể đổi giá/tồn kho/thuộc tính (cần xác nhận)`);
+  const keep = plan.variants.filter((v) => v.action === "keep").length;
+  if (keep) plan.notes.push(`${keep} biến thể không có trong gói — giữ nguyên.`);
+}
+
 function computePlan(db: DatabaseSync, stored: Stored, imgs: ImageMap): PlanItem[] {
   const url = (f: string) => `/anh/${f}`;
   return stored.items.map((item): PlanItem => {
@@ -487,6 +631,9 @@ function computePlan(db: DatabaseSync, stored: Stored, imgs: ImageMap): PlanItem
       existingVideos: 0,
       seo: null,
       create: null,
+      optionNames: [],
+      variants: [],
+      variantUpdates: 0,
     };
     const newInline = item.inline.filter((p) => !imgs.get(`bai|${p}`)?.reused).length;
     if (newInline) plan.notes.push(`${newInline} ảnh mới trong bài.`);
@@ -497,7 +644,12 @@ function computePlan(db: DatabaseSync, stored: Stored, imgs: ImageMap): PlanItem
       plan.action = "new";
       plan.title = c.name;
       plan.summary = item.summary;
-      plan.create = { category: PENDING_CATEGORY_NAME, slug: c.slug, brand: c.brand, variant: c.variant, missing: c.missing };
+      plan.create = { category: PENDING_CATEGORY_NAME, slug: c.slug, brand: c.brand, missing: c.missing };
+      if (c.variants) {
+        plan.optionNames = c.variants.optionNames;
+        plan.variants = c.variants.list.map((v) => ({ sku: v.sku, action: "add", before: null, after: variantValues(v), changed: [], inOrders: false }));
+        plan.changes.push(`${c.variants.list.length} biến thể`);
+      }
       plan.changes.push(`Sản phẩm mới trong “${PENDING_CATEGORY_NAME}” (Ẩn)`);
       plan.notes.push("Chỉ thấy trong quản trị cho tới khi chọn danh mục chính thức và Hiện. Lưu nháp hay Công khai đều tạo sản phẩm ở trạng thái Ẩn.");
       plan.seo = applySeoPatch(NO_SEO, item.seo);
@@ -505,8 +657,8 @@ function computePlan(db: DatabaseSync, stored: Stored, imgs: ImageMap): PlanItem
       if (db.prepare("SELECT 1 FROM products WHERE slug = ?").get(c.slug)) plan.errors.push(`Slug “${c.slug}” đã thuộc sản phẩm khác.`);
       if (c.source && c.code && db.prepare("SELECT 1 FROM products WHERE source = ? AND source_code = ?").get(c.source, c.code))
         plan.errors.push(`Nguồn ${c.source}/${c.code} đã thuộc sản phẩm khác.`);
-      if (c.variant && db.prepare("SELECT 1 FROM product_variants WHERE sku = ? COLLATE NOCASE").get(c.variant.sku))
-        plan.errors.push(`SKU “${c.variant.sku}” đã thuộc sản phẩm khác.`);
+      for (const v of c.variants?.list ?? [])
+        if (db.prepare("SELECT 1 FROM product_variants WHERE sku = ? COLLATE NOCASE").get(v.sku)) plan.errors.push(`SKU “${v.sku}” đã thuộc sản phẩm khác.`);
       const seen = new Set<string>();
       for (const ref of [item.cover, ...item.gallery]) {
         if (!ref || seen.has(ref.path)) continue;
@@ -626,6 +778,8 @@ function computePlan(db: DatabaseSync, stored: Stored, imgs: ImageMap): PlanItem
         if (next > MAX_VIDEOS_PER_PRODUCT)
           plan.errors.push(`Sản phẩm sẽ có ${next} video, vượt tối đa ${MAX_VIDEOS_PER_PRODUCT}. Bớt video trong gói hoặc xoá video cũ trong trang sửa sản phẩm.`);
       }
+
+      if (item.variants) planExistingVariants(db, row.id, item.variants, plan);
     } else if (item.kind === "tin_tuc") {
       const row = db.prepare("SELECT * FROM news_posts WHERE slug = ?").get(item.slug) as
         | {
@@ -767,7 +921,7 @@ export type PackagePreview =
       ready: boolean;
     };
 
-export function getPackagePreview(batchId: string): PackagePreview {
+export function getPackagePreview(batchId: string, target?: string): PackagePreview {
   const db = getDb();
   const batch = db.prepare("SELECT * FROM package_imports WHERE id = ?").get(batchId) as
     | { id: string; file_name: string; manifest_json: string; status: string; result_json: string | null; created_at: string }
@@ -777,6 +931,13 @@ export function getPackagePreview(batchId: string): PackagePreview {
   const { map, failed, pending } = loadImages(db, batchId);
   const items = computePlan(db, stored, map);
   const errors: PkgIssue[] = [...failed, ...items.flatMap((p) => p.errors.map((message) => ({ item: p.index, message })))];
+  // Đích (trang sửa sản phẩm) kiểm tra lại mỗi lần xem trước.
+  if ((stored.target ?? null) !== (target ?? null))
+    errors.push({ item: null, message: stored.target ? "Lượt nhập này thuộc trang sửa một sản phẩm khác." : "Lượt nhập này được tải lên ở trang Nhập gói, không dùng ở đây." });
+  else if (stored.target) {
+    const e = checkTarget(stored.items, stored.target, db);
+    if (e) errors.push({ item: null, message: e });
+  }
   const imageNotes = [...map.entries()]
     .filter(([, i]) => i.overTarget)
     .map(([k, i]) => `${k.split("|")[1]}: ${Math.round(i.sizeBytes / 1024)} KB sau tối ưu (trên mục tiêu, vẫn trong giới hạn 500 KB).`);
@@ -872,9 +1033,17 @@ export function applyProductDraft(db: DatabaseSync, productId: string, draft: Pr
   syncProductPublic(db, [productId]);
 }
 
-export function commitPackage(batchId: string, mode: CommitMode, username: string): CommitResult {
+export type CommitOptions = {
+  /** Quản trị đã xác nhận riêng việc đổi giá/tồn kho/thuộc tính của biến thể ĐÃ CÓ. */
+  confirmVariantUpdates?: boolean;
+  /** Cập nhật từ trang sửa sản phẩm: mã sản phẩm đang mở (phải trùng đích đã ghi lúc tải gói lên). */
+  target?: string;
+};
+
+export function commitPackage(batchId: string, mode: CommitMode, username: string, opts: CommitOptions = {}): CommitResult {
   type Outcome =
     | { kind: "missing" | "cancelled" | "expired" | "notReady"; errors?: PkgIssue[] }
+    | { kind: "rejected"; message: string; errors?: PkgIssue[] }
     | { kind: "already" | "ok"; summary: CommitSummary };
   let outcome: Outcome;
   try {
@@ -889,6 +1058,21 @@ export function commitPackage(batchId: string, mode: CommitMode, username: strin
       const stored = JSON.parse(batch.manifest_json) as Stored;
       const { map, failed, pending } = loadImages(tx, batchId);
       if (pending || failed.length) return { kind: "notReady", errors: failed };
+
+      // Kiểm tra TRƯỚC khi ghi bất cứ gì — lượt bị từ chối không để lại dữ liệu.
+      if ((stored.target ?? null) !== (opts.target ?? null))
+        return { kind: "rejected", message: "Lượt nhập này không thuộc sản phẩm đang mở. Hãy tải gói lên lại." };
+      const targetError = stored.target ? checkTarget(stored.items, stored.target, tx) : null;
+      if (targetError) return { kind: "rejected", message: targetError };
+      const draftPlans = computePlan(tx, stored, map);
+      const planErrors = draftPlans.flatMap((p) => p.errors.map((message) => ({ item: p.index, message })));
+      if (planErrors.length) return { kind: "notReady", errors: planErrors };
+      const updates = draftPlans.reduce((n, p) => n + p.variantUpdates, 0);
+      if (updates && !opts.confirmVariantUpdates)
+        return {
+          kind: "rejected",
+          message: `Gói đổi giá/tồn kho/thuộc tính của ${updates} biến thể đã có — hãy xem giá trị trước/sau và đánh dấu ô xác nhận riêng. Chưa ghi gì.`,
+        };
 
       // Ảnh trong bài/ảnh bìa: nếu đã có bản lưu cùng ảnh gốc thì dùng bản đó; chưa có thì ghi nhận tệp vừa xử lý.
       const now = nowIso();
@@ -950,6 +1134,8 @@ export function commitPackage(batchId: string, mode: CommitMode, username: strin
       return { ok: false, message: "Lượt nhập đã quá 24 giờ. Hãy tải gói lên lại." };
     case "notReady":
       return { ok: false, message: "Gói chưa sẵn sàng (ảnh chưa xử lý xong hoặc còn lỗi). Chưa ghi gì.", errors: outcome.errors };
+    case "rejected":
+      return { ok: false, message: outcome.message, errors: outcome.errors };
     default:
       void cleanupBatchFiles(batchId); // ZIP tạm + ảnh đã xử lý nhưng không dùng
       return { ok: true, alreadyApplied: outcome.kind === "already", summary: outcome.summary };
@@ -1029,8 +1215,47 @@ function applyProductItem(
     return;
   }
   // Sản phẩm ĐÃ CÓ: giữ nguyên danh mục và trạng thái Ẩn/Hiện (kể cả khi chọn Công khai).
+  // Biến thể (giá, tồn kho, thuộc tính) áp dụng ngay khi xác nhận ở cả hai cách; bài viết/ảnh/video theo Lưu nháp/Công khai.
+  if (item.variants) applyVariantPlan(db, item.productId, plan);
+  // Gói chỉ đổi biến thể (bài, ảnh, video, SEO như cũ) → không tạo bản nháp nội dung rỗng.
+  const contentChanged = plan.changes.some((c) => !c.includes("biến thể"));
+  if (!contentChanged) {
+    syncProductPublic(db, [item.productId]);
+    return;
+  }
   if (mode === "publish") applyProductDraft(db, item.productId, draft, { setVisible: false });
-  else db.prepare("UPDATE products SET content_draft_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(draft), nowIso(), item.productId);
+  else {
+    db.prepare("UPDATE products SET content_draft_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(draft), nowIso(), item.productId);
+    if (item.variants) syncProductPublic(db, [item.productId]);
+  }
+}
+
+/**
+ * Ghi biến thể của sản phẩm ĐÃ CÓ theo kế hoạch đã xem trước: cập nhật TẠI CHỖ (giữ nguyên mã biến thể → đơn hàng cũ vẫn
+ * liên kết đúng), thêm biến thể mới vào cuối, KHÔNG xoá biến thể vắng mặt trong gói.
+ */
+function applyVariantPlan(db: DatabaseSync, productId: string, plan: PlanItem) {
+  const rows = existingVariantRows(db, productId);
+  const bySku = new Map(rows.map((r) => [r.sku.toUpperCase(), r]));
+  if (!rows.length) db.prepare("UPDATE products SET option_names_json = ? WHERE id = ?").run(JSON.stringify(plan.optionNames), productId);
+  const updates = plan.variants.filter((v) => v.action === "update");
+  // Đặt khoá tạm trước để đổi chỗ thuộc tính giữa các dòng không vướng ràng buộc duy nhất (product_id, options_key).
+  for (const v of updates) db.prepare("UPDATE product_variants SET options_key = '~tmp~' || id WHERE id = ?").run(bySku.get(v.sku.toUpperCase())!.id);
+  const update = db.prepare("UPDATE product_variants SET price = ?, compare_at_price = ?, stock = ?, options_json = ?, options_key = ? WHERE id = ? AND product_id = ?");
+  for (const v of updates) {
+    const a = v.after!;
+    update.run(a.price, a.compareAtPrice, a.stock, JSON.stringify(a.options), optionsKey(a.options), bySku.get(v.sku.toUpperCase())!.id, productId);
+  }
+  let pos = (db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM product_variants WHERE product_id = ?").get(productId) as { p: number }).p;
+  const insert = db.prepare(
+    `INSERT INTO product_variants (product_id, sku, options_json, options_key, price, compare_at_price, stock, position, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+  );
+  for (const v of plan.variants.filter((x) => x.action === "add")) {
+    const a = v.after!;
+    insert.run(productId, v.sku, JSON.stringify(a.options), optionsKey(a.options), a.price, a.compareAtPrice, a.stock, pos++);
+  }
+  db.prepare("UPDATE products SET updated_at = ? WHERE id = ?").run(nowIso(), productId);
 }
 
 /**
@@ -1044,13 +1269,27 @@ function createPendingProduct(db: DatabaseSync, c: NewProduct, summary: string):
   db.prepare(
     `INSERT INTO products (id, slug, name, brand, category_id, short_description, description, option_names_json, placeholder_tone,
                            placeholder_icon, is_visible, search_text, source, source_code, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, '', '[]', 'slate', 'shopping-bag', 0, ?, ?, ?, ?, ?)`,
-  ).run(id, c.slug, c.name, c.brand, categoryId, summary, productSearchText(c.name, c.brand, c.slug), c.source, c.code, t, t);
-  if (c.variant)
-    db.prepare(
-      `INSERT INTO product_variants (product_id, sku, options_json, options_key, price, compare_at_price, stock, position, is_active)
-       VALUES (?, ?, '{}', '', ?, ?, ?, 0, 1)`,
-    ).run(id, c.variant.sku, c.variant.price, c.variant.compareAtPrice, c.variant.stock);
+     VALUES (?, ?, ?, ?, ?, ?, '', ?, 'slate', 'shopping-bag', 0, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    c.slug,
+    c.name,
+    c.brand,
+    categoryId,
+    summary,
+    JSON.stringify(c.variants?.optionNames ?? []),
+    productSearchText(c.name, c.brand, c.slug),
+    c.source,
+    c.code,
+    t,
+    t,
+  );
+  // Một sản phẩm, nhiều biến thể: chỉ các tổ hợp có trong gói.
+  const insert = db.prepare(
+    `INSERT INTO product_variants (product_id, sku, options_json, options_key, price, compare_at_price, stock, position, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+  );
+  (c.variants?.list ?? []).forEach((v, i) => insert.run(id, v.sku, JSON.stringify(v.options), v.key, v.price, v.compareAtPrice, v.stock, i));
   return id;
 }
 

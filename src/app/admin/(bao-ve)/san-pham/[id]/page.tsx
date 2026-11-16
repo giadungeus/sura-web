@@ -11,6 +11,7 @@ import { getProductDraftInfo } from "@/lib/server/package/service";
 import { getPreviewContext } from "@/lib/server/site-content";
 import { ProductForm } from "../product-form";
 import { ProductDraftBox } from "./product-draft";
+import { PackageImportClient } from "../../nhap-goi/package-client";
 
 export const metadata: Metadata = { title: "Sửa sản phẩm" };
 
@@ -75,6 +76,27 @@ async function Content({ params, searchParams }: Props) {
         </div>
       </div>
       {sp["da-luu"] && <Notice>Đã lưu sản phẩm. Cửa hàng đã cập nhật.</Notice>}
+      {sp["da-cap-nhat-zip"] && <Notice>Đã cập nhật sản phẩm từ gói ZIP. Danh mục và trạng thái Ẩn/Hiện giữ nguyên.</Notice>}
+      {/* Cập nhật từ ZIP: dùng lại trình nhập gói; gói phải đúng một mục khớp sản phẩm này (máy chủ kiểm tra). */}
+      <details className="group rounded-2xl border border-neutral-200 bg-white p-4 sm:p-5">
+        <summary className="cursor-pointer list-none font-semibold">
+          Cập nhật từ ZIP <span className="font-normal text-neutral-500">— bài viết, ảnh, video, biến thể của riêng sản phẩm này</span>
+        </summary>
+        <div className="mt-3 space-y-3">
+          <p className="text-xs text-neutral-500">
+            Gói chỉ được có đúng một mục <code>&quot;loai&quot;: &quot;san_pham&quot;</code> trỏ tới sản phẩm này (theo <code>slug</code>{" "}
+            <code>{product.slug}</code>
+            {product.source && (
+              <>
+                {" "}
+                hoặc <code>nguon</code>/<code>ma_san_pham</code> {product.source}/{product.sourceCode}
+              </>
+            )}
+            ). Xem trước rồi mới ghi; danh mục và Ẩn/Hiện giữ nguyên.
+          </p>
+          <PackageImportClient vars={vars} hiddenPaths={hiddenPaths} pending={[]} target={{ id: product.id, name: product.name }} />
+        </div>
+      </details>
       {blockers.length > 0 && (
         <div role={sp["chua-hien"] ? "alert" : undefined} className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
           <p className="font-semibold">{sp["chua-hien"] ? "Chưa thể hiện sản phẩm — còn thiếu:" : "Cần bổ sung trước khi hiện sản phẩm:"}</p>

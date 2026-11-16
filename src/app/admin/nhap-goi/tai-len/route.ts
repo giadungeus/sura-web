@@ -46,7 +46,10 @@ export async function POST(request: Request) {
   } catch {}
 
   try {
-    const result = await createPackageImport(Buffer.concat(chunks), fileName, session.username);
+    // “Cập nhật từ ZIP” ở trang sửa sản phẩm gửi kèm mã sản phẩm đang mở; máy chủ kiểm tra gói khớp đích.
+    const targetRaw = request.headers.get("x-target-product");
+    if (targetRaw !== null && !/^[a-z0-9-]{1,40}$/.test(targetRaw)) return json(400, { ok: false, message: "Sản phẩm đích không hợp lệ." });
+    const result = await createPackageImport(Buffer.concat(chunks), fileName, session.username, targetRaw ?? undefined);
     return json(result.ok ? 200 : 422, result);
   } catch (error) {
     console.error("[goi] Lỗi tải gói:", error instanceof Error ? error.message : error);

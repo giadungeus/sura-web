@@ -71,6 +71,72 @@
       ]
     },
     {
+      "loai": "san_pham",
+      "nguon": "mau",
+      "ma_san_pham": "MAU-CAP-60W",
+      "slug": "mau-cap-usb-c-60w",
+      "tieu_de": "(MẪU) Cáp USB-C to USB-C 60W — nhiều biến thể",
+      "thuong_hieu": "Mẫu",
+      "mo_ta_ngan": "(MẪU) Một sản phẩm, nhiều biến thể theo Chiều dài × Màu sắc.",
+      "bai_viet": "bai/cap-nhieu-bien-the-mau.md",
+      "anh_dai_dien": {
+        "tep": "anh/sac-du-phong-cong-sac.jpg",
+        "alt": "Cáp USB-C mẫu"
+      },
+      "thuoc_tinh": [
+        "Chiều dài",
+        "Màu sắc"
+      ],
+      "bien_the": [
+        {
+          "sku": "MAU-CAP60-025-DEN",
+          "gia_ban": 89000,
+          "ton_kho": 10,
+          "thuoc_tinh": {
+            "Chiều dài": "0,25 m",
+            "Màu sắc": "Đen"
+          }
+        },
+        {
+          "sku": "MAU-CAP60-025-TRANG",
+          "gia_ban": 89000,
+          "ton_kho": 0,
+          "thuoc_tinh": {
+            "Chiều dài": "0,25 m",
+            "Màu sắc": "Trắng"
+          }
+        },
+        {
+          "sku": "MAU-CAP60-1M-DEN",
+          "gia_ban": 119000,
+          "gia_niem_yet": 149000,
+          "ton_kho": 25,
+          "thuoc_tinh": {
+            "Chiều dài": "1 m",
+            "Màu sắc": "Đen"
+          }
+        },
+        {
+          "sku": "MAU-CAP60-1M-TRANG",
+          "gia_ban": 119000,
+          "ton_kho": 12,
+          "thuoc_tinh": {
+            "Chiều dài": "1 m",
+            "Màu sắc": "Trắng"
+          }
+        },
+        {
+          "sku": "MAU-CAP60-1M-XANH",
+          "gia_ban": 125000,
+          "ton_kho": 10,
+          "thuoc_tinh": {
+            "Chiều dài": "1 m",
+            "Màu sắc": "Xanh"
+          }
+        }
+      ]
+    },
+    {
       "loai": "tin_tuc",
       "slug": "mau-cach-doc-thong-so-cap-sac",
       "tieu_de": "(MẪU) Cách đọc thông số cáp sạc",

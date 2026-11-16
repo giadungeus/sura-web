@@ -396,16 +396,24 @@ export function checkNewProductFields(f: {
   if (!f.slug || f.slug.length > SLUG_MAX_LENGTH || !SLUG_PATTERN.test(f.slug)) errs.push("Slug chỉ gồm chữ thường không dấu, số và dấu gạch ngang.");
   if (f.brand.length > 60) errs.push("Thương hiệu tối đa 60 ký tự.");
   if (f.shortDescription.length > 300) errs.push("Mô tả ngắn tối đa 300 ký tự.");
-  const v = f.variant;
-  if (v) {
-    if (!SKU_PATTERN.test(v.sku)) errs.push("SKU gồm 2–40 ký tự in hoa, số, “-” hoặc “_”.");
-    if (v.price === null || v.price < PRICE_MIN || v.price > PRICE_MAX) errs.push("Giá bán là số nguyên từ 1.000 đến 10.000.000.000 ₫.");
-    if (v.compareAtPrice !== null && (v.compareAtPrice > PRICE_MAX || v.price === null || v.compareAtPrice <= v.price))
-      errs.push("Giá niêm yết phải lớn hơn giá bán (hoặc bỏ trống).");
-    if (v.stock === null || v.stock < 0 || v.stock > STOCK_MAX) errs.push("Tồn kho là số nguyên từ 0 đến 1.000.000.");
-  }
+  if (f.variant) errs.push(...checkVariantFields(f.variant));
   return errs;
 }
+
+/** Một phiên bản: SKU, giá bán, giá niêm yết, tồn kho — đúng quy tắc của form sửa sản phẩm. */
+export function checkVariantFields(v: { sku: string; price: number | null; compareAtPrice: number | null; stock: number | null }): string[] {
+  const errs: string[] = [];
+  if (!SKU_PATTERN.test(v.sku)) errs.push("SKU gồm 2–40 ký tự in hoa, số, “-” hoặc “_”.");
+  if (v.price === null || v.price < PRICE_MIN || v.price > PRICE_MAX) errs.push("Giá bán là số nguyên từ 1.000 đến 10.000.000.000 ₫.");
+  if (v.compareAtPrice !== null && (v.compareAtPrice > PRICE_MAX || v.price === null || v.compareAtPrice <= v.price))
+    errs.push("Giá niêm yết phải lớn hơn giá bán (hoặc bỏ trống).");
+  if (v.stock === null || v.stock < 0 || v.stock > STOCK_MAX) errs.push("Tồn kho là số nguyên từ 0 đến 1.000.000.");
+  return errs;
+}
+
+/** Tên thuộc tính / giá trị thuộc tính: giới hạn giống form (tối đa 3 thuộc tính, tên ≤ 30, giá trị ≤ 40 ký tự). */
+export const OPTION_NAME_MAX = 30;
+export const OPTION_VALUE_MAX = 40;
 
 // ═════════════════════════ SẢN PHẨM ═════════════════════════
 

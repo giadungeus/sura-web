@@ -5,6 +5,8 @@
 > Cập nhật 13/11/2026: sản phẩm nhận thêm `video_san_pham` (mục 2.2.1). Vẫn là **phiên bản 1** — gói cũ không có khoá này nhập như trước.
 >
 > Cập nhật 13/11/2026 (bổ sung): gói **tạo được sản phẩm mới** vào “Danh mục chờ” (mục 2.2.2). Sản phẩm đã có giữ nguyên danh mục và Ẩn/Hiện kể cả khi chọn Công khai.
+>
+> Cập nhật 13/11/2026 (bổ sung 2): **nhiều biến thể** với `thuoc_tinh` + `bien_the` (mục 2.2.3); **Cập nhật từ ZIP** ngay trong trang sửa sản phẩm (mục 2.2.4).
 
 Tài liệu cho người soạn gói (Mimi). Một gói là **một tệp ZIP** chứa bài viết và ảnh. Quản trị tải gói lên
 **Quản trị → Nhập gói nội dung**, xem trước, chọn **Lưu nháp** (mặc định) hoặc **Công khai**, rồi xác nhận.
@@ -114,11 +116,63 @@ Nếu website **chưa có** sản phẩm theo `slug` / `nguon` + `ma_san_pham`, 
 | `slug` | Không | Chữ thường không dấu, số, `-`. Bỏ trống → tạo từ `tieu_de` |
 | `thuong_hieu` | Không | Tối đa 60 ký tự |
 | `mo_ta_ngan` | Không | Tối đa 300 ký tự |
-| `sku`, `gia_ban`, `ton_kho` | Không — nhưng **ghi đủ cả ba hoặc bỏ cả ba** | SKU 2–40 ký tự in hoa, số, `-`, `_`, không trùng sản phẩm khác; giá bán số nguyên 1.000–10.000.000.000 ₫; tồn kho 0–1.000.000. Giá có thể ghi `590000` hoặc `"590.000"` |
+| `sku`, `gia_ban`, `ton_kho` | Không — nhưng **ghi đủ cả ba hoặc bỏ cả ba** | Sản phẩm **một giá** (“bộ cũ”). SKU 2–40 ký tự in hoa, số, `-`, `_`, không trùng sản phẩm khác; giá bán số nguyên 1.000–10.000.000.000 ₫; tồn kho 0–1.000.000. Giá có thể ghi `590000` hoặc `"590.000"` |
 | `gia_niem_yet` | Không | Lớn hơn `gia_ban` |
+| `thuoc_tinh` + `bien_the` | Không | Sản phẩm **nhiều biến thể** — xem mục 2.2.3. **Không** ghi cùng lúc với bộ cũ |
 
 - **Không ghi giá/tồn kho/SKU**: sản phẩm vẫn được tạo nhưng **chưa có phiên bản**. Website **không tự điền** giá hay tồn kho; xem trước và trang sửa sản phẩm ghi rõ “còn thiếu: Giá bán, Tồn kho, SKU”.
-- Với sản phẩm **đã có**, các khoá `thuong_hieu`, `sku`, `gia_ban`, `gia_niem_yet`, `ton_kho` bị bỏ qua (kèm cảnh báo).
+- Với sản phẩm **đã có**: bộ cũ `sku`, `gia_ban`, `gia_niem_yet`, `ton_kho` và `thuong_hieu` bị bỏ qua (kèm cảnh báo). Muốn cập nhật giá/tồn kho của sản phẩm đã có, dùng `bien_the` (mục 2.2.3).
+
+#### 2.2.3 Nhiều biến thể — `thuoc_tinh` + `bien_the`
+
+Một mục sản phẩm → **một** trang sản phẩm với nhiều biến thể. Cấu trúc giống ô “Thuộc tính” và bảng phiên bản trong trang sửa sản phẩm:
+
+```json
+{
+  "loai": "san_pham",
+  "nguon": "techmall", "ma_san_pham": "CAP-C2C-60W",
+  "tieu_de": "Cáp USB-C to USB-C 60W",
+  "bai_viet": "bai/cap-c2c.md",
+  "thuoc_tinh": ["Chiều dài", "Màu sắc"],
+  "bien_the": [
+    { "sku": "CAP60-025-DEN",   "gia_ban": 89000,  "ton_kho": 10, "thuoc_tinh": { "Chiều dài": "0,25 m", "Màu sắc": "Đen" } },
+    { "sku": "CAP60-025-TRANG", "gia_ban": 89000,  "ton_kho": 0,  "thuoc_tinh": { "Chiều dài": "0,25 m", "Màu sắc": "Trắng" } },
+    { "sku": "CAP60-1M-DEN",    "gia_ban": 119000, "gia_niem_yet": 149000, "ton_kho": 25, "thuoc_tinh": { "Chiều dài": "1 m", "Màu sắc": "Đen" } }
+  ]
+}
+```
+
+| Khoá | Quy tắc |
+|---|---|
+| `thuoc_tinh` (cấp sản phẩm) | Danh sách tên thuộc tính chọn hàng, **tối đa 3**, mỗi tên ≤ 30 ký tự, không trùng. Thứ tự là thứ tự hiện trên trang khách |
+| `bien_the` | 1–100 biến thể. Mỗi biến thể: `sku`, `gia_ban`, `ton_kho` (bắt buộc), `gia_niem_yet` (không bắt buộc), `thuoc_tinh` |
+| `bien_the[].thuoc_tinh` | Đủ **mọi** tên trong `thuoc_tinh` của sản phẩm, mỗi giá trị 1–40 ký tự; không ghi tên lạ |
+
+- **Chỉ ghi các tổ hợp có thật** trong nguồn (vd. 0,25 m chỉ có Đen và Trắng, 1 m chỉ có Đen) — website không tự sinh tổ hợp. Trên trang khách, chọn chiều dài và màu sẽ ra đúng SKU, giá, tình trạng hàng của tổ hợp đó; tổ hợp không có thì không chọn được.
+- **Tồn kho**: website dùng đúng số ghi trong gói. Quy ước của người soạn: nguồn xác nhận còn hàng nhưng không ghi số lượng → ghi `10`; hết hàng → `0`.
+- Báo lỗi: thiếu `sku`/`gia_ban`/`ton_kho`, thiếu giá trị thuộc tính, **SKU trùng** (trong mục, giữa các mục, hoặc đã thuộc sản phẩm khác), **tổ hợp trùng**, ghi cùng lúc bộ cũ và `bien_the`.
+- Sản phẩm một giá vẫn có thể dùng `bien_the` với đúng 1 biến thể và không ghi `thuoc_tinh`.
+
+**Cập nhật sản phẩm đã có bằng `bien_the`** — đối chiếu theo **SKU**:
+
+| Trường hợp | Kết quả |
+|---|---|
+| SKU chưa có trên sản phẩm | **Thêm** biến thể |
+| SKU đã có, giá/tồn kho/thuộc tính như cũ | **Giữ nguyên** |
+| SKU đã có, đổi giá bán, giá niêm yết, tồn kho hoặc thuộc tính | **Cập nhật** — xem trước hiện giá trị **trước → sau**; quản trị phải **đánh dấu ô xác nhận riêng** mới ghi được. Biến thể giữ nguyên mã nên **đơn hàng cũ vẫn liên kết đúng** |
+| Biến thể đang có nhưng gói không ghi | **Giữ** (không xoá). Muốn xoá, dùng trang sửa sản phẩm |
+
+- `thuoc_tinh` phải **cùng các tên** sản phẩm đang dùng (không phân biệt hoa/thường, thứ tự tuỳ ý). Muốn đổi cấu trúc thuộc tính, làm trong trang sửa sản phẩm trước.
+- Thay đổi biến thể áp dụng **ngay khi xác nhận**, kể cả khi chọn Lưu nháp (Lưu nháp chỉ áp dụng cho bài viết, ảnh, video, SEO).
+- Gói chỉ đổi biến thể (bài viết như cũ) không tạo bản nháp nội dung.
+
+#### 2.2.4 Cập nhật một sản phẩm ngay trong trang sửa sản phẩm
+
+**Quản trị → Sản phẩm → mở sản phẩm → “Cập nhật từ ZIP”**: tải gói, xem trước, xác nhận — giống Nhập gói, nhưng:
+
+- Gói phải có **đúng một mục** `"loai": "san_pham"` trỏ tới **chính sản phẩm đang mở** (theo `slug` hoặc `nguon` + `ma_san_pham`). Gói có mục tin tức/trang/danh mục, nhiều sản phẩm, hoặc trỏ sang sản phẩm khác (kể cả sản phẩm chưa có) đều bị từ chối — **không ghi gì**. Website kiểm tra lúc tải lên, lúc xem trước và lúc xác nhận.
+- Xem trước gồm bài viết, ảnh, video và bảng biến thể (thêm / cập nhật trước → sau / giữ nguyên / giữ).
+- Danh mục và trạng thái Ẩn/Hiện **giữ nguyên**. Xác nhận xong, website quay lại trang sửa sản phẩm.
 
 **Sau khi nhập** — quản trị vào **Sản phẩm**, bấm nút lọc **“Danh mục chờ”**, mở từng sản phẩm:
 1. Chọn **danh mục chính thức**, bổ sung giá bán / tồn kho / SKU nếu còn thiếu, bấm **Lưu**.
@@ -291,6 +345,7 @@ Gợi ý đọc tốt trên điện thoại: đoạn văn ngắn (2–4 câu); b
 | Ảnh | 5 MB/ảnh đầu vào; tổng sau giải nén ≤ 40 MB |
 | Ảnh sản phẩm | tổng tối đa 10 ảnh/sản phẩm (kể cả ảnh đã có) |
 | Video sản phẩm | tổng tối đa 10 video/sản phẩm (kể cả video đã có) |
+| Biến thể | tối đa 100/sản phẩm (kể cả đã có); tối đa 3 thuộc tính chọn hàng |
 
 ZIP có mật khẩu, ZIP lồng nhau, liên kết tượng trưng, tên tệp có `..` hoặc ký tự lạ, tỉ lệ nén bất thường (“ZIP bomb”) đều bị từ chối.
 
@@ -317,7 +372,8 @@ Với sản phẩm đã có: **không đổi giá, tồn kho, SKU, phiên bản,
 - [ ] Mọi `bai_viet`, `tep` trỏ đúng tệp có trong ZIP (phân biệt chữ hoa/thường).
 - [ ] Mọi ảnh có `alt`.
 - [ ] Sản phẩm cần cập nhật: đúng `slug` hoặc `nguon` + `ma_san_pham` của sản phẩm đã có (ghi sai sẽ thành **tạo sản phẩm mới** — kiểm tra kỹ ở bước xem trước).
-- [ ] Sản phẩm mới: có `tieu_de`; nên có `nguon` + `ma_san_pham`; `sku`, `gia_ban`, `ton_kho` ghi đủ cả ba hoặc bỏ cả ba.
+- [ ] Sản phẩm mới: có `tieu_de`; nên có `nguon` + `ma_san_pham`; một giá thì ghi đủ `sku`, `gia_ban`, `ton_kho` (hoặc bỏ cả ba); nhiều biến thể thì dùng `thuoc_tinh` + `bien_the`, KHÔNG ghi cả hai cách.
+- [ ] `bien_the`: mỗi biến thể có SKU riêng, đủ giá trị cho mọi thuộc tính, chỉ các tổ hợp có trong nguồn; tồn kho theo nguồn (còn hàng không rõ số lượng → 10).
 - [ ] `video_san_pham` (nếu có): mỗi video có `tieu_de`, `url` là link YouTube/TikTok đầy đủ (không phải mã nhúng, không phải link TikTok rút gọn); `anh_bia` trỏ đúng ảnh trong `anh/`.
 - [ ] Danh mục: đúng `slug` danh mục đã có; chỉ ghi các trường muốn đổi (bỏ hẳn khoá để giữ nguyên, `""` để xoá).
 - [ ] Không ghi giá, tồn kho, khuyến mại hay cam kết chưa được duyệt.

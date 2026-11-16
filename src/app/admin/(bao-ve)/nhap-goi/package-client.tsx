@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, FileArchive, Loader2, Smartphone, Monitor, Play, XCircle } from "lucide-react";
 import { RichText } from "@/components/content/rich-text";
 import type { PkgIssue } from "@/lib/server/package/manifest";
-import type { CommitMode, CommitSummary, PackagePreview, PlanItem, PlanVideo } from "@/lib/server/package/service";
+import type { CommitMode, CommitSummary, PackagePreview, PlanItem, PlanVariant, PlanVideo, VariantValues } from "@/lib/server/package/service";
 import { cancelPackageAction, commitPackageAction, getPackagePreviewAction, processPackageImagesAction } from "../../package-actions";
 
 type Pending = { id: string; name: string; fileName: string; createdAt: string };
@@ -18,7 +19,24 @@ const ACTION = {
   unchanged: ["Giữ nguyên", "bg-neutral-100 text-neutral-600 ring-neutral-200"],
 } as const;
 
-export function PackageImportClient({ vars, hiddenPaths, pending }: { vars: Record<string, string>; hiddenPaths: string[]; pending: Pending[] }) {
+/**
+ * Nhập gói ZIP: tải lên → kiểm tra → xử lý ảnh → xem trước → xác nhận.
+ * target: dùng ở trang sửa sản phẩm (“Cập nhật từ ZIP”) — gói phải đúng một mục khớp sản phẩm này (máy chủ kiểm tra lúc tải lên,
+ * xem trước và áp dụng); xong thì quay lại trang sửa sản phẩm.
+ */
+export function PackageImportClient({
+  vars,
+  hiddenPaths,
+  pending,
+  target,
+}: {
+  vars: Record<string, string>;
+  hiddenPaths: string[];
+  pending: Pending[];
+  target?: { id: string; name: string };
+}) {
+  const [confirmVariants, setConfirmVariants] = useState(false);
+  const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<{ message: string; errors?: PkgIssue[]; warnings?: PkgIssue[] } | null>(null);
@@ -36,7 +54,7 @@ export function PackageImportClient({ vars, hiddenPaths, pending }: { vars: Reco
   }, []);
 
   const loadPreview = async (batchId: string) => {
-    const p = await getPackagePreviewAction(batchId);
+    const p = await getPackagePreviewAction(batchId, target?.id);
     if (!p.ok) return setError({ message: p.message });
     setPreview(p);
     if (p.result) setResult({ summary: p.result, already: true });
@@ -78,6 +96,7 @@ export function PackageImportClient({ vars, hiddenPaths, pending }: { vars: Reco
     setPreview(null);
     setResult(null);
     setMode("draft");
+    setConfirmVariants(false);
   };
 
   const upload = async () => {
@@ -89,7 +108,11 @@ export function PackageImportClient({ vars, hiddenPaths, pending }: { vars: Reco
     try {
       const res = await fetch("/admin/nhap-goi/tai-len", {
         method: "POST",
-        headers: { "Content-Type": "application/zip", "X-File-Name": encodeURIComponent(file.name) },
+        headers: {
+          "Content-Type": "application/zip",
+          "X-File-Name": encodeURIComponent(file.name),
+          ...(target ? { "X-Target-Product": target.id } : {}),
+        },
         body: file,
       });
       const data = await res.json().catch(() => ({ ok: false, message: `Máy chủ trả về lỗi ${res.status}.` }));
@@ -113,7 +136,15 @@ export function PackageImportClient({ vars, hiddenPaths, pending }: { vars: Reco
     if (!window.confirm(`Xác nhận ${label} ${preview.items.filter((i) => i.action !== "unchanged").length} mục từ gói này?`)) return;
     setBusy("Đang ghi…");
     try {
-      const r = await commitPackageAction(preview.batchId, mode);
+      const r = await commitPackageAction(preview.batchId, mode, { confirmVariantUpdates: confirmVariants, target: target?.id });
+      if (r.ok && target) {
+        // Quay lại đúng trang sửa sản phẩm, dữ liệu mới (form dựng lại theo thời điểm cập nhật).
+        reset();
+        if (fileRef.current) fileRef.current.value = "";
+        router.push(`/admin/san-pham/${target.id}?da-cap-nhat-zip=1`);
+        router.refresh();
+        return;
+      }
       if (r.ok) setResult({ summary: r.summary, already: r.alreadyApplied });
       else setError({ message: r.message, errors: r.errors });
     } catch {
@@ -134,6 +165,7 @@ export function PackageImportClient({ vars, hiddenPaths, pending }: { vars: Reco
   };
 
   const changed = preview?.items.filter((i) => i.action !== "unchanged").length ?? 0;
+  const variantUpdates = preview?.items.reduce((n, i) => n + i.variantUpdates, 0) ?? 0;
 
   return (
     <div className="space-y-5">
@@ -157,7 +189,7 @@ export function PackageImportClient({ vars, hiddenPaths, pending }: { vars: Reco
             <FileArchive className="size-4" aria-hidden /> Tải lên &amp; kiểm tra
           </button>
         </div>
-        {pending.length > 0 && !preview && (
+        {!target && pending.length > 0 && !preview && (
           <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
             <p className="font-medium">Lượt nhập đang chờ xác nhận</p>
             <ul className="mt-1 space-y-1">
@@ -254,10 +286,24 @@ export function PackageImportClient({ vars, hiddenPaths, pending }: { vars: Reco
                   <b>Sản phẩm → lọc “Danh mục chờ”</b> để chọn danh mục chính thức, bổ sung giá/tồn kho rồi Hiện.
                 </p>
               </fieldset>
+              {variantUpdates > 0 && (
+                <label className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                  <input
+                    type="checkbox"
+                    checked={confirmVariants}
+                    onChange={(e) => setConfirmVariants(e.target.checked)}
+                    className="mt-1 size-4 accent-neutral-900"
+                  />
+                  <span>
+                    Tôi đã xem giá trị <b>trước → sau</b> và đồng ý cập nhật giá/tồn kho/thuộc tính của <b>{variantUpdates} biến thể đã có</b>.
+                    Biến thể giữ nguyên mã nên đơn hàng cũ vẫn liên kết đúng. Thay đổi biến thể áp dụng ngay khi xác nhận (cả khi Lưu nháp).
+                  </span>
+                </label>
+              )}
               <button
                 type="button"
                 onClick={commit}
-                disabled={!!busy || changed === 0}
+                disabled={!!busy || changed === 0 || (variantUpdates > 0 && !confirmVariants)}
                 className="inline-flex h-11 items-center gap-2 rounded-full bg-neutral-900 px-6 text-sm font-semibold text-white hover:bg-neutral-800 disabled:opacity-40"
               >
                 {busy === "Đang ghi…" && <Loader2 className="size-4 animate-spin" aria-hidden />}
@@ -325,10 +371,8 @@ function PreviewItem({ item, vars, hiddenPaths }: { item: PlanItem; vars: Record
             {item.create.brand && <> · thương hiệu {item.create.brand}</>}
           </p>
           <p className="text-xs">
-            {item.create.variant
-              ? `SKU ${item.create.variant.sku} · giá bán ${item.create.variant.price.toLocaleString("vi-VN")} ₫${
-                  item.create.variant.compareAtPrice ? ` (niêm yết ${item.create.variant.compareAtPrice.toLocaleString("vi-VN")} ₫)` : ""
-                } · tồn kho ${item.create.variant.stock}`
+            {item.variants.length
+              ? `${item.variants.length} biến thể${item.optionNames.length ? ` theo ${item.optionNames.join(" × ")}` : ""} — xem bảng biến thể bên dưới.`
               : "Gói chưa có giá bán, tồn kho, SKU — sản phẩm được tạo chưa có phiên bản (không tự điền giá hay tồn kho)."}
           </p>
           <p className="text-xs font-medium text-amber-800">
@@ -348,6 +392,7 @@ function PreviewItem({ item, vars, hiddenPaths }: { item: PlanItem; vars: Record
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden /> {item.errors.join(" ")}
         </p>
       )}
+      {item.variants.length > 0 && <VariantPlanTable variants={item.variants} optionNames={item.optionNames} />}
       {item.videos.length > 0 && <VideoPlanList videos={item.videos} existing={item.existingVideos} />}
       <div className="flex flex-wrap gap-2 text-xs">
         <button type="button" onClick={() => setMobile((v) => !v)} className="inline-flex items-center gap-1 rounded-full border border-neutral-300 px-3 py-1">
@@ -387,6 +432,76 @@ function PreviewItem({ item, vars, hiddenPaths }: { item: PlanItem; vars: Record
         </div>
       </div>
     </li>
+  );
+}
+
+const VARIANT_ACTION = {
+  add: ["Thêm", "bg-emerald-50 text-emerald-800 ring-emerald-200"],
+  update: ["Cập nhật", "bg-amber-50 text-amber-900 ring-amber-300"],
+  unchanged: ["Giữ nguyên", "bg-neutral-100 text-neutral-600 ring-neutral-200"],
+  keep: ["Giữ (không có trong gói)", "bg-neutral-50 text-neutral-500 ring-neutral-200"],
+} as const;
+const vnd = (n: number | null) => (n === null ? "—" : `${n.toLocaleString("vi-VN")} ₫`);
+
+/** Biến thể sau khi nhập: thêm / cập nhật (trước → sau) / giữ nguyên / giữ. Đối chiếu theo SKU. */
+function VariantPlanTable({ variants, optionNames }: { variants: PlanVariant[]; optionNames: string[] }) {
+  const cell = (v: PlanVariant, pick: (x: VariantValues) => string, field: string) => {
+    const b = v.before ? pick(v.before) : null;
+    const a = v.after ? pick(v.after) : null;
+    if (v.action === "update" && v.changed.includes(field))
+      return (
+        <span>
+          <s className="text-neutral-400">{b}</s> → <b className="text-amber-900">{a}</b>
+        </span>
+      );
+    return <span>{a ?? b}</span>;
+  };
+  const opt = (name: string) => (x: VariantValues) => x.options[name] ?? "";
+  return (
+    <div className="space-y-1 rounded-lg bg-neutral-50 p-3">
+      <p className="text-sm font-medium">
+        Biến thể ({variants.length}){optionNames.length > 0 && <span className="font-normal text-neutral-500"> · thuộc tính: {optionNames.join(", ")}</span>}
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] text-left text-xs">
+          <thead className="text-neutral-500">
+            <tr>
+              <th className="py-1 pr-2 font-medium">SKU</th>
+              {optionNames.map((n) => (
+                <th key={n} className="py-1 pr-2 font-medium">
+                  {n}
+                </th>
+              ))}
+              <th className="py-1 pr-2 font-medium">Giá bán</th>
+              <th className="py-1 pr-2 font-medium">Giá niêm yết</th>
+              <th className="py-1 pr-2 font-medium">Tồn kho</th>
+              <th className="py-1 font-medium">Kết quả</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-200">
+            {variants.map((v) => (
+              <tr key={v.sku} className={v.action === "update" ? "bg-amber-50/60" : ""}>
+                <td className="py-1 pr-2 font-mono">{v.sku}</td>
+                {optionNames.map((n) => (
+                  <td key={n} className="py-1 pr-2">
+                    {cell(v, opt(n), "Thuộc tính")}
+                  </td>
+                ))}
+                <td className="py-1 pr-2">{cell(v, (x) => vnd(x.price), "Giá bán")}</td>
+                <td className="py-1 pr-2">{cell(v, (x) => vnd(x.compareAtPrice), "Giá niêm yết")}</td>
+                <td className="py-1 pr-2">{cell(v, (x) => String(x.stock), "Tồn kho")}</td>
+                <td className="py-1">
+                  <span className={`rounded-full px-2 py-0.5 font-medium whitespace-nowrap ring-1 ring-inset ${VARIANT_ACTION[v.action][1]}`}>
+                    {VARIANT_ACTION[v.action][0]}
+                  </span>
+                  {v.inOrders && v.action === "update" && <span className="ml-1 text-neutral-500">· có trong đơn (giữ liên kết)</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

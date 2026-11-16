@@ -11,6 +11,7 @@ import {
   processPackageImages,
   resolveProductDraft,
   type CommitMode,
+  type CommitOptions,
   type CommitResult,
   type PackageImageOutcome,
   type PackageImageProgress,
@@ -37,16 +38,22 @@ export async function processPackageImagesAction(
   }
 }
 
-export async function getPackagePreviewAction(batchId: string): Promise<PackagePreview> {
+const PRODUCT_ID = /^[a-z0-9-]{1,40}$/;
+const targetOf = (t: unknown) => (typeof t === "string" && PRODUCT_ID.test(t) ? t : undefined);
+
+export async function getPackagePreviewAction(batchId: string, target?: string): Promise<PackagePreview> {
   await requireAdmin("/admin/nhap-goi");
   if (!isPackageId(batchId)) return { ok: false, message: "Lượt nhập không hợp lệ." };
-  return getPackagePreview(batchId);
+  return getPackagePreview(batchId, targetOf(target));
 }
 
-export async function commitPackageAction(batchId: string, mode: CommitMode): Promise<CommitResult> {
+export async function commitPackageAction(batchId: string, mode: CommitMode, opts: CommitOptions = {}): Promise<CommitResult> {
   const session = await requireAdmin("/admin/nhap-goi");
   if (!isPackageId(batchId) || (mode !== "draft" && mode !== "publish")) return { ok: false, message: "Yêu cầu không hợp lệ." };
-  const result = commitPackage(batchId, mode, session.username);
+  const result = commitPackage(batchId, mode, session.username, {
+    confirmVariantUpdates: opts?.confirmVariantUpdates === true,
+    target: targetOf(opts?.target),
+  });
   if (result.ok) refresh();
   return result;
 }
