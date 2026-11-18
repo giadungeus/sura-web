@@ -2,16 +2,10 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import Form from "next/form";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Hourglass, Package, Plus, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Package, Plus, Search } from "lucide-react";
 import { Notice } from "@/components/admin/form-ui";
 import { requireAdmin } from "@/lib/server/admin-auth";
-import {
-  PENDING_CATEGORY_NAME,
-  findPendingCategoryId,
-  listAdminCategories,
-  listAdminProducts,
-  type ProductStatusFilter,
-} from "@/lib/server/admin-catalog";
+import { listAdminCategories, listAdminProducts, type ProductStatusFilter } from "@/lib/server/admin-catalog";
 import { ProductList } from "./product-list";
 
 export const metadata: Metadata = { title: "Sản phẩm" };
@@ -55,9 +49,6 @@ async function ProductsContent({ searchParams }: { searchParams: Promise<SP> }) 
 
   const categories = listAdminCategories();
   const result = listAdminProducts({ q, categoryId: dm, status: tt, page });
-  // “Danh mục chờ”: sản phẩm mới từ gói nội dung, chờ chọn danh mục chính thức.
-  const pendingId = findPendingCategoryId();
-  const pendingCount = pendingId ? listAdminProducts({ categoryId: pendingId }).total : 0;
 
   return (
     <div className="space-y-5">
@@ -128,26 +119,13 @@ async function ProductsContent({ searchParams }: { searchParams: Promise<SP> }) 
         })}
       </nav>
 
-      {pendingId !== null && (
-        <Link
-          href={dm === pendingId ? href({ q, tt }) : href({ q, dm: pendingId, tt })}
-          aria-current={dm === pendingId ? "true" : undefined}
-          className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm ${
-            dm === pendingId ? "border-amber-600 bg-amber-600 text-white" : "border-amber-300 bg-amber-50 text-amber-900 hover:border-amber-500"
-          }`}
-        >
-          <Hourglass className="size-4" aria-hidden /> {PENDING_CATEGORY_NAME} ({pendingCount})
-          {dm === pendingId && <span className="text-xs opacity-80">· bấm để bỏ lọc</span>}
-        </Link>
-      )}
-
       {result.items.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-neutral-300 bg-white px-6 py-14 text-center">
           <Package className="size-10 text-neutral-300" aria-hidden />
           <p className="font-medium">Không có sản phẩm phù hợp</p>
         </div>
       ) : (
-        <ProductList key={`${q}|${dm ?? ""}|${tt ?? ""}|${result.page}`} items={result.items} pendingCategoryName={PENDING_CATEGORY_NAME} />
+        <ProductList key={`${q}|${dm ?? ""}|${tt ?? ""}|${result.page}`} items={result.items} />
       )}
 
       {result.totalPages > 1 && (

@@ -15,9 +15,9 @@ const priceRange = (min: number | null, max: number | null) =>
 /**
  * Danh sách sản phẩm của MỘT trang (theo bộ lọc/tìm kiếm đang dùng) kèm chọn & xoá hàng loạt.
  * Trang cha đặt `key` theo trang + bộ lọc + tìm kiếm → đổi trang/bộ lọc là bỏ hết lựa chọn cũ.
- * Chỉ chọn được sản phẩm đang hiển thị trên trang này. Máy chủ kiểm tra quyền và quy tắc xoá cho từng sản phẩm.
+ * Chỉ chọn được sản phẩm đang hiển thị trên trang này (theo bộ lọc đang dùng). Máy chủ kiểm tra quyền và quy tắc xoá cho từng sản phẩm.
  */
-export function ProductList({ items, pendingCategoryName }: { items: AdminProductListItem[]; pendingCategoryName: string }) {
+export function ProductList({ items }: { items: AdminProductListItem[] }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<BulkDeleteResult | null>(null);
   const [pending, start] = useTransition();
@@ -121,7 +121,7 @@ export function ProductList({ items, pendingCategoryName }: { items: AdminProduc
               </Link>
               <p className="truncate text-xs text-neutral-500">
                 {p.brand && `${p.brand} · `}
-                <span className={p.categoryName === pendingCategoryName ? "font-semibold text-amber-700" : ""}>{p.categoryName}</span> ·{" "}
+                {p.categoryName} ·{" "}
                 {p.variantCount} phiên bản
               </p>
               <p className="mt-0.5 text-sm">

@@ -441,6 +441,15 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_product_videos_product ON product_videos(product_id, position);
   `,
+  // v12: bỏ “Danh mục chờ” (slug danh-muc-cho) — sản phẩm mới từ gói giờ vào thẳng danh mục được chọn.
+  // CHỈ xoá khi danh mục rỗng (không sản phẩm, không danh mục con). Còn sản phẩm thì giữ lại như một danh mục thường (Ẩn)
+  // để không mất gì; quản trị chuyển sản phẩm sang danh mục khác rồi xoá ở trang Danh mục.
+  `
+  DELETE FROM categories
+  WHERE slug = 'danh-muc-cho'
+    AND NOT EXISTS (SELECT 1 FROM products p WHERE p.category_id = categories.id)
+    AND NOT EXISTS (SELECT 1 FROM categories c WHERE c.parent_id = categories.id);
+  `,
 ];
 
 export function migrate(db: DatabaseSync): void {

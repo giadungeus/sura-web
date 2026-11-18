@@ -128,7 +128,7 @@ export async function toggleProductAction(formData: FormData): Promise<void> {
   await requireAdmin(PRODUCT_ID.test(id) ? `/admin/san-pham/${id}` : "/admin/san-pham");
   if (!PRODUCT_ID.test(id)) return;
   const r = setProductVisibility(id, formData.get("visible") === "1");
-  // Chưa đủ điều kiện hiện (Danh mục chờ / chưa có giá, tồn kho): mở trang sửa, nơi ghi rõ điều còn thiếu.
+  // Chưa đủ điều kiện hiện (chưa có giá, tồn kho): mở trang sửa, nơi ghi rõ điều còn thiếu.
   if (!r.ok) redirect(`/admin/san-pham/${id}?chua-hien=1`);
   refresh();
 }

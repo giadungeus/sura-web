@@ -29,12 +29,17 @@ export function PackageImportClient({
   hiddenPaths,
   pending,
   target,
+  categories,
 }: {
   vars: Record<string, string>;
   hiddenPaths: string[];
   pending: Pending[];
   target?: { id: string; name: string };
+  /** Danh mục để chọn cho sản phẩm MỚI (trang Nhập gói). */
+  categories?: { id: number; name: string; depth: number }[];
 }) {
+  /** Danh mục đã chọn cho sản phẩm mới, theo số thứ tự mục trong gói. */
+  const [picked, setPicked] = useState<Record<string, number>>({});
   const [confirmVariants, setConfirmVariants] = useState(false);
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -57,6 +62,8 @@ export function PackageImportClient({
     const p = await getPackagePreviewAction(batchId, target?.id);
     if (!p.ok) return setError({ message: p.message });
     setPreview(p);
+    // Mặc định: danh mục ghi trong gói.
+    setPicked(Object.fromEntries(p.items.filter((i) => i.create?.categoryId).map((i) => [String(i.index), i.create!.categoryId!])));
     if (p.result) setResult({ summary: p.result, already: true });
   };
 
@@ -97,6 +104,7 @@ export function PackageImportClient({
     setResult(null);
     setMode("draft");
     setConfirmVariants(false);
+    setPicked({});
   };
 
   const upload = async () => {
@@ -136,7 +144,7 @@ export function PackageImportClient({
     if (!window.confirm(`Xác nhận ${label} ${preview.items.filter((i) => i.action !== "unchanged").length} mục từ gói này?`)) return;
     setBusy("Đang ghi…");
     try {
-      const r = await commitPackageAction(preview.batchId, mode, { confirmVariantUpdates: confirmVariants, target: target?.id });
+      const r = await commitPackageAction(preview.batchId, mode, { confirmVariantUpdates: confirmVariants, target: target?.id, categories: picked });
       if (r.ok && target) {
         // Quay lại đúng trang sửa sản phẩm, dữ liệu mới (form dựng lại theo thời điểm cập nhật).
         reset();
@@ -166,6 +174,8 @@ export function PackageImportClient({
 
   const changed = preview?.items.filter((i) => i.action !== "unchanged").length ?? 0;
   const variantUpdates = preview?.items.reduce((n, i) => n + i.variantUpdates, 0) ?? 0;
+  const newProducts = preview?.items.filter((i) => i.create) ?? [];
+  const missingCategory = newProducts.some((i) => !picked[String(i.index)]);
 
   return (
     <div className="space-y-5">
@@ -281,11 +291,40 @@ export function PackageImportClient({
                     Ẩn/Hiện.
                   </span>
                 </label>
-                <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
-                  Với cả hai cách, sản phẩm <b>mới</b> được tạo trong <b>“Danh mục chờ”</b> ở trạng thái <b>Ẩn</b>. Vào{" "}
-                  <b>Sản phẩm → lọc “Danh mục chờ”</b> để chọn danh mục chính thức, bổ sung giá/tồn kho rồi Hiện.
-                </p>
+                {newProducts.length > 0 && (
+                  <p className="rounded-lg bg-sky-50 p-2 text-xs text-sky-900">
+                    Sản phẩm <b>mới</b>: Lưu nháp → tạo ở trạng thái <b>Ẩn</b>; Công khai → <b>Hiện</b> ngay nếu đã có giá/tồn kho (chưa có giá thì
+                    tạo Ẩn).
+                  </p>
+                )}
               </fieldset>
+              {newProducts.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-neutral-200 p-3 text-sm">
+                  <p className="font-medium">Danh mục cho sản phẩm mới</p>
+                  {newProducts.map((i) => (
+                    <label key={i.index} className="grid gap-1 sm:grid-cols-[1fr_260px] sm:items-center">
+                      <span className="min-w-0 truncate">
+                        Mục {i.index}: <b>{i.title}</b>
+                      </span>
+                      <select
+                        value={picked[String(i.index)] ?? ""}
+                        onChange={(e) => setPicked((prev) => ({ ...prev, [String(i.index)]: Number(e.target.value) }))}
+                        aria-label={`Danh mục cho ${i.title}`}
+                        className={`h-10 rounded-xl border bg-white px-3 ${picked[String(i.index)] ? "border-neutral-300" : "border-brand-600"}`}
+                      >
+                        <option value="">— Chọn danh mục —</option>
+                        {(categories ?? []).map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {"— ".repeat(c.depth)}
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                  {missingCategory && <p className="text-xs text-brand-700">Chọn danh mục cho mọi sản phẩm mới trước khi xác nhận.</p>}
+                </div>
+              )}
               {variantUpdates > 0 && (
                 <label className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
                   <input
@@ -303,7 +342,7 @@ export function PackageImportClient({
               <button
                 type="button"
                 onClick={commit}
-                disabled={!!busy || changed === 0 || (variantUpdates > 0 && !confirmVariants)}
+                disabled={!!busy || changed === 0 || (variantUpdates > 0 && !confirmVariants) || missingCategory}
                 className="inline-flex h-11 items-center gap-2 rounded-full bg-neutral-900 px-6 text-sm font-semibold text-white hover:bg-neutral-800 disabled:opacity-40"
               >
                 {busy === "Đang ghi…" && <Loader2 className="size-4 animate-spin" aria-hidden />}
@@ -367,7 +406,8 @@ function PreviewItem({ item, vars, hiddenPaths }: { item: PlanItem; vars: Record
       {item.create && (
         <div className="space-y-1 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
           <p className="font-medium">
-            Tạo sản phẩm mới trong “{item.create.category}” · trạng thái Ẩn · slug <code>{item.create.slug}</code>
+            Tạo sản phẩm mới {item.create.categoryName ? <>trong “{item.create.categoryName}”</> : "(chọn danh mục ở bước xác nhận)"} · slug{" "}
+            <code>{item.create.slug}</code>
             {item.create.brand && <> · thương hiệu {item.create.brand}</>}
           </p>
           <p className="text-xs">
@@ -375,9 +415,9 @@ function PreviewItem({ item, vars, hiddenPaths }: { item: PlanItem; vars: Record
               ? `${item.variants.length} biến thể${item.optionNames.length ? ` theo ${item.optionNames.join(" × ")}` : ""} — xem bảng biến thể bên dưới.`
               : "Gói chưa có giá bán, tồn kho, SKU — sản phẩm được tạo chưa có phiên bản (không tự điền giá hay tồn kho)."}
           </p>
-          <p className="text-xs font-medium text-amber-800">
-            Quản trị cần bổ sung trước khi Hiện: {item.create.missing.join(", ")}.
-          </p>
+          {item.create.missing.length > 0 && (
+            <p className="text-xs font-medium text-amber-800">Cần bổ sung trước khi Hiện: {item.create.missing.join(", ")}.</p>
+          )}
         </div>
       )}
       {item.changes.length > 0 && <p className="text-sm text-neutral-700">Thay đổi: {item.changes.join(", ")}.</p>}

@@ -46,7 +46,8 @@
       "slug": "mau-sac-du-phong-20000mah-pd-30w",
       "tieu_de": "(MẪU) Sạc dự phòng 20000mAh PD 30W — sản phẩm mới",
       "thuong_hieu": "Mẫu",
-      "mo_ta_ngan": "(MẪU) Sản phẩm mới tạo từ gói: vào Danh mục chờ, trạng thái Ẩn.",
+      "danh_muc": "pin-du-phong",
+      "mo_ta_ngan": "(MẪU) Sản phẩm mới tạo từ gói, vào danh mục ghi trong \"danh_muc\".",
       "sku": "MAU-PB-20K",
       "gia_ban": 590000,
       "gia_niem_yet": 690000,
@@ -77,6 +78,7 @@
       "slug": "mau-cap-usb-c-60w",
       "tieu_de": "(MẪU) Cáp USB-C to USB-C 60W — nhiều biến thể",
       "thuong_hieu": "Mẫu",
+      "danh_muc": "phu-kien-sac",
       "mo_ta_ngan": "(MẪU) Một sản phẩm, nhiều biến thể theo Chiều dài × Màu sắc.",
       "bai_viet": "bai/cap-nhieu-bien-the-mau.md",
       "anh_dai_dien": {

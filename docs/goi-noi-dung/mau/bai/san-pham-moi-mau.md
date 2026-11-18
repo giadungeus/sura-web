@@ -1,6 +1,6 @@
 ## Giới thiệu
 
-(MẪU) Bài mô tả cho **sản phẩm mới** tạo từ gói. Sản phẩm vào “Danh mục chờ” ở trạng thái Ẩn; quản trị chọn danh mục chính thức rồi mới Hiện.
+(MẪU) Bài mô tả cho **sản phẩm mới** tạo từ gói. Sản phẩm vào danh mục ghi trong `danh_muc` (hoặc quản trị chọn khi xác nhận).
 
 ## Điểm nổi bật
 

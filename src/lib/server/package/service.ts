@@ -15,8 +15,6 @@ import { IMAGE_LINE } from "@/lib/content/markup";
 import { pageBySlug } from "@/lib/content/pages";
 import {
   MAX_VARIANTS,
-  PENDING_CATEGORY_NAME,
-  ensurePendingCategory,
   parseCategoryDraft,
   writePublicCategoryContent,
   type CategoryContent,
@@ -470,9 +468,10 @@ export type PlanItem = {
   existingVideos: number;
   /** SEO sau khi áp gói; null khi không xác định (mục lỗi). */
   seo: SeoValues | null;
-  /** Sản phẩm MỚI: tạo trong “Danh mục chờ” (Ẩn). null = cập nhật sản phẩm đã có / không phải sản phẩm. */
+  /** Sản phẩm MỚI. categoryId/categoryName: danh mục ghi trong gói (null = quản trị chọn ở bước xác nhận). */
   create: {
-    category: string;
+    categoryId: number | null;
+    categoryName: string | null;
     slug: string;
     brand: string;
     missing: string[];
@@ -639,19 +638,25 @@ function computePlan(db: DatabaseSync, stored: Stored, imgs: ImageMap): PlanItem
     if (newInline) plan.notes.push(`${newInline} ảnh mới trong bài.`);
 
     if (item.kind === "san_pham" && item.create) {
-      // ── Sản phẩm MỚI → “Danh mục chờ”, Ẩn ──
+      // ── Sản phẩm MỚI → danh mục ghi trong gói, hoặc quản trị chọn ở bước xác nhận ──
       const c = item.create;
       plan.action = "new";
       plan.title = c.name;
       plan.summary = item.summary;
-      plan.create = { category: PENDING_CATEGORY_NAME, slug: c.slug, brand: c.brand, missing: c.missing };
+      const cat = c.categoryId !== null ? (db.prepare("SELECT id, name FROM categories WHERE id = ?").get(c.categoryId) as { id: number; name: string } | undefined) : undefined;
+      if (c.categoryId !== null && !cat) plan.errors.push(`Danh mục “${c.categoryName}” ghi trong gói không còn tồn tại — chọn danh mục khác ở bước xác nhận hoặc sửa gói.`);
+      plan.create = { categoryId: cat?.id ?? null, categoryName: cat?.name ?? null, slug: c.slug, brand: c.brand, missing: c.missing };
       if (c.variants) {
         plan.optionNames = c.variants.optionNames;
         plan.variants = c.variants.list.map((v) => ({ sku: v.sku, action: "add", before: null, after: variantValues(v), changed: [], inOrders: false }));
         plan.changes.push(`${c.variants.list.length} biến thể`);
       }
-      plan.changes.push(`Sản phẩm mới trong “${PENDING_CATEGORY_NAME}” (Ẩn)`);
-      plan.notes.push("Chỉ thấy trong quản trị cho tới khi chọn danh mục chính thức và Hiện. Lưu nháp hay Công khai đều tạo sản phẩm ở trạng thái Ẩn.");
+      plan.changes.push(cat ? `Sản phẩm mới trong “${cat.name}”` : "Sản phẩm mới (chọn danh mục ở bước xác nhận)");
+      plan.notes.push(
+        c.variants
+          ? "Lưu nháp: tạo ở trạng thái Ẩn. Công khai: hiện ngay trên cửa hàng."
+          : "Chưa có giá/tồn kho: sản phẩm được tạo ở trạng thái Ẩn (kể cả khi Công khai) — bổ sung giá rồi Hiện trong trang sửa sản phẩm.",
+      );
       plan.seo = applySeoPatch(NO_SEO, item.seo);
       // Trùng trong CSDL (có thể phát sinh sau lúc tải gói lên): slug, nguồn + mã, SKU.
       if (db.prepare("SELECT 1 FROM products WHERE slug = ?").get(c.slug)) plan.errors.push(`Slug “${c.slug}” đã thuộc sản phẩm khác.`);
@@ -1036,6 +1041,8 @@ export function applyProductDraft(db: DatabaseSync, productId: string, draft: Pr
 export type CommitOptions = {
   /** Quản trị đã xác nhận riêng việc đổi giá/tồn kho/thuộc tính của biến thể ĐÃ CÓ. */
   confirmVariantUpdates?: boolean;
+  /** Danh mục cho sản phẩm MỚI, theo số thứ tự mục trong gói (ghi đè danh mục ghi trong gói). */
+  categories?: Record<string, number>;
   /** Cập nhật từ trang sửa sản phẩm: mã sản phẩm đang mở (phải trùng đích đã ghi lúc tải gói lên). */
   target?: string;
 };
@@ -1067,6 +1074,16 @@ export function commitPackage(batchId: string, mode: CommitMode, username: strin
       const draftPlans = computePlan(tx, stored, map);
       const planErrors = draftPlans.flatMap((p) => p.errors.map((message) => ({ item: p.index, message })));
       if (planErrors.length) return { kind: "notReady", errors: planErrors };
+      // Mọi sản phẩm mới phải có danh mục (gói ghi sẵn hoặc quản trị chọn), và danh mục phải còn tồn tại.
+      const chosenCategory = new Map<number, number>();
+      for (const [i, item] of stored.items.entries()) {
+        if (item.kind !== "san_pham" || !item.create) continue;
+        const picked = opts.categories?.[String(item.index)];
+        const id = Number.isInteger(picked) ? picked! : draftPlans[i].create?.categoryId;
+        if (!id || !tx.prepare("SELECT 1 FROM categories WHERE id = ?").get(id))
+          return { kind: "rejected", message: `Chọn danh mục cho sản phẩm mới “${item.create.name}” (mục ${item.index}). Chưa ghi gì.` };
+        chosenCategory.set(item.index, id);
+      }
       const updates = draftPlans.reduce((n, p) => n + p.variantUpdates, 0);
       if (updates && !opts.confirmVariantUpdates)
         return {
@@ -1099,7 +1116,7 @@ export function commitPackage(batchId: string, mode: CommitMode, username: strin
       for (const [i, item] of stored.items.entries()) {
         const plan = plans[i];
         if (plan.action === "unchanged") continue;
-        if (item.kind === "san_pham") applyProductItem(tx, item, plan, map, mode, batchId, username);
+        if (item.kind === "san_pham") applyProductItem(tx, item, plan, map, mode, batchId, username, chosenCategory.get(item.index));
         else if (item.kind === "tin_tuc") applyNewsItem(tx, item, plan, map, mode, username);
         else if (item.kind === "danh_muc") applyCategoryItem(tx, item, plan, mode);
         else applyPageItem(tx, item, plan, mode, username);
@@ -1162,6 +1179,7 @@ function applyProductItem(
   mode: CommitMode,
   batchId: string,
   username: string,
+  categoryId?: number,
 ) {
   const images: ProductDraft["images"] = [];
   const seen = new Set<string>();
@@ -1206,8 +1224,10 @@ function applyProductItem(
     ...(videos?.length ? { videos } : {}),
   };
   if (item.create) {
-    // Sản phẩm MỚI: tạo trong “Danh mục chờ” ở trạng thái Ẩn rồi áp nội dung ngay (khách không thấy, không cần bản nháp).
-    const id = createPendingProduct(db, item.create, item.summary ?? "");
+    // Sản phẩm MỚI: tạo vào danh mục đã chọn rồi áp nội dung ngay (sản phẩm mới chưa ai thấy, không cần bản nháp).
+    // Công khai + đã có giá/tồn kho → Hiện ngay; còn lại tạo Ẩn.
+    const visible = mode === "publish" && !!item.create.variants?.list.length;
+    const id = createNewProduct(db, item.create, item.summary ?? "", categoryId!, visible);
     applyProductDraft(db, id, draft, { setVisible: false });
     const slug = item.create.slug;
     plan.adminPath = `/admin/san-pham/${id}`;
@@ -1259,17 +1279,17 @@ function applyVariantPlan(db: DatabaseSync, productId: string, plan: PlanItem) {
 }
 
 /**
- * Tạo sản phẩm mới từ gói: “Danh mục chờ”, Ẩn. Phiên bản chỉ tạo khi gói ghi đủ SKU, giá bán, tồn kho (đã kiểm tra theo quy
- * tắc form); thiếu thì để trống cho quản trị bổ sung — KHÔNG tự điền giá hay tồn kho.
+ * Tạo sản phẩm mới từ gói vào danh mục đã chọn. Phiên bản chỉ tạo khi gói ghi đủ SKU, giá bán, tồn kho (đã kiểm tra theo quy
+ * tắc form); thiếu thì để trống cho quản trị bổ sung — KHÔNG tự điền giá hay tồn kho (và sản phẩm khi đó luôn Ẩn).
  */
-function createPendingProduct(db: DatabaseSync, c: NewProduct, summary: string): string {
-  const categoryId = ensurePendingCategory(db);
+function createNewProduct(db: DatabaseSync, c: NewProduct, summary: string, categoryId: number, visible: boolean): string {
+  const icon = (db.prepare("SELECT icon FROM categories WHERE id = ?").get(categoryId) as { icon: string } | undefined)?.icon ?? "shopping-bag";
   const id = `sp-${randomBytes(4).toString("hex")}`;
   const t = nowIso();
   db.prepare(
     `INSERT INTO products (id, slug, name, brand, category_id, short_description, description, option_names_json, placeholder_tone,
                            placeholder_icon, is_visible, search_text, source, source_code, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, '', ?, 'slate', 'shopping-bag', 0, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, '', ?, 'slate', ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     c.slug,
@@ -1278,6 +1298,8 @@ function createPendingProduct(db: DatabaseSync, c: NewProduct, summary: string):
     categoryId,
     summary,
     JSON.stringify(c.variants?.optionNames ?? []),
+    icon,
+    visible ? 1 : 0,
     productSearchText(c.name, c.brand, c.slug),
     c.source,
     c.code,

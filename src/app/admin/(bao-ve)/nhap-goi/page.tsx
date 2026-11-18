@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { formatDateTime } from "@/lib/format-date";
 import { requireAdmin } from "@/lib/server/admin-auth";
+import { listAdminCategories } from "@/lib/server/admin-catalog";
 import { listPackageImports } from "@/lib/server/package/service";
 import { getPreviewContext } from "@/lib/server/site-content";
 import { PackageImportClient } from "./package-client";
@@ -33,7 +34,12 @@ async function Content() {
   const recent = listPackageImports(8);
   return (
     <>
-      <PackageImportClient vars={vars} hiddenPaths={hiddenPaths} pending={recent.filter((r) => r.status === "staging")} />
+      <PackageImportClient
+        vars={vars}
+        hiddenPaths={hiddenPaths}
+        pending={recent.filter((r) => r.status === "staging")}
+        categories={listAdminCategories().map((c) => ({ id: c.id, name: c.name, depth: c.depth }))}
+      />
       <section className="space-y-2 rounded-2xl border border-neutral-200 bg-white p-4 text-sm sm:p-5">
         <h2 className="font-semibold">Định dạng gói</h2>
         <ul className="list-disc space-y-1 pl-5 text-neutral-600">

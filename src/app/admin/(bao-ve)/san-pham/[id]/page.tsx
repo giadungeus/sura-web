@@ -42,7 +42,7 @@ async function Content({ params, searchParams }: Props) {
   const categories = listAdminCategories().map((c) => ({ id: c.id, name: c.name, depth: c.depth }));
   const draft = getProductDraftInfo(product.id);
   const deleteInfo = getProductDeleteInfo(product.id);
-  // Sản phẩm mới từ gói (“Danh mục chờ”) hoặc chưa có giá/tồn kho: ghi rõ điều còn thiếu trước khi Hiện.
+  // Sản phẩm chưa có giá/tồn kho (vd. tạo từ gói chưa ghi giá): ghi rõ điều còn thiếu trước khi Hiện.
   const blockers = product.isVisible ? [] : productPublishBlockers(product.id);
   const { vars, hiddenPaths } = getPreviewContext();
 
@@ -106,7 +106,7 @@ async function Content({ params, searchParams }: Props) {
             ))}
           </ul>
           <p className="mt-2 text-xs">
-            Chọn danh mục chính thức và nhập giá bán, tồn kho, SKU trong form dưới, bấm Lưu, rồi bấm “Hiện sản phẩm”.
+            Nhập giá bán, tồn kho, SKU trong form dưới, bấm Lưu, rồi bấm “Hiện sản phẩm”.
           </p>
         </div>
       )}

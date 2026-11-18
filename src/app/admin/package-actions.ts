@@ -53,6 +53,12 @@ export async function commitPackageAction(batchId: string, mode: CommitMode, opt
   const result = commitPackage(batchId, mode, session.username, {
     confirmVariantUpdates: opts?.confirmVariantUpdates === true,
     target: targetOf(opts?.target),
+    // Danh mục cho sản phẩm mới: chỉ nhận số nguyên dương; máy chủ kiểm tra danh mục còn tồn tại trước khi ghi.
+    categories: Object.fromEntries(
+      Object.entries(opts?.categories && typeof opts.categories === "object" ? opts.categories : {}).filter(
+        ([k, v]) => /^\d{1,3}$/.test(k) && Number.isInteger(v) && (v as number) > 0,
+      ),
+    ),
   });
   if (result.ok) refresh();
   return result;

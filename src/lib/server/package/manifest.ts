@@ -55,7 +55,7 @@ export type PkgItem =
       gallery: ImgRef[];
       /** Khoá "video_san_pham" vắng mặt → undefined: giữ nguyên video hiện có (gói cũ, lượt nhập lưu trước đây). */
       videos?: PkgVideo[];
-      /** Có khi sản phẩm CHƯA tồn tại: tạo mới trong “Danh mục chờ” (productId = "new:<slug>"). */
+      /** Có khi sản phẩm CHƯA tồn tại: tạo mới vào danh mục đã chọn (productId = "new:<slug>"). */
       create?: NewProduct;
       /** Sản phẩm đã có + "bien_the": biến thể đối chiếu theo SKU (thêm / cập nhật / giữ nguyên). */
       variants?: PkgVariants;
@@ -80,6 +80,9 @@ export type NewProduct = {
   code: string | null;
   /** Biến thể từ gói (bộ cũ sku/gia_ban/ton_kho → 1 biến thể không thuộc tính). null = chưa có giá/tồn kho. */
   variants: PkgVariants | null;
+  /** Danh mục ghi trong gói ("danh_muc": slug danh mục đã có). null = quản trị chọn ở bước xác nhận. */
+  categoryId: number | null;
+  categoryName: string | null;
   missing: string[];
 };
 
@@ -90,7 +93,7 @@ export type PkgVariants = { optionNames: string[]; list: PkgVariant[] };
 /** Mã tạm của sản phẩm mới trong gói (không trùng mã thật: mã thật không có dấu “:”). */
 export const NEW_PRODUCT_PREFIX = "new:";
 /** Khoá chỉ dùng khi TẠO sản phẩm mới; với sản phẩm đã có thì bỏ qua (gói không đổi giá/tồn kho/SKU/thương hiệu). */
-const CREATE_ONLY_KEYS = ["thuong_hieu", "sku", "gia_ban", "gia_niem_yet", "ton_kho"] as const;
+const CREATE_ONLY_KEYS = ["thuong_hieu", "danh_muc", "sku", "gia_ban", "gia_niem_yet", "ton_kho"] as const;
 
 /** Số nguyên từ số hoặc chuỗi số (cho phép “1.290.000”); undefined = không có khoá; NaN = sai kiểu. */
 function intField(v: unknown): number | undefined {
@@ -106,6 +109,7 @@ function newProduct(
   summary: string,
   ref: { slug?: string; source?: string; code?: string },
   err: (message: string) => void,
+  lookupCategory: CategoryLookup,
 ): NewProduct | undefined {
   const where = ref.slug ? `slug “${ref.slug}”` : `${ref.source}/${ref.code}`;
   if (!title) {
@@ -121,9 +125,29 @@ function newProduct(
     errs.forEach((e) => err(`Sản phẩm mới ${where}: ${e}`));
     return undefined;
   }
-  const missing = ["Danh mục chính thức"];
+  // Danh mục: slug danh mục đã có (không bắt buộc — quản trị chọn được ở bước xác nhận).
+  let category: { id: number; label: string } | null = null;
+  const catSlug = str(m.danh_muc).toLowerCase();
+  if (m.danh_muc !== undefined && m.danh_muc !== null && m.danh_muc !== "") {
+    category = catSlug ? lookupCategory(catSlug) : null;
+    if (!category) {
+      err(`Sản phẩm mới ${where}: không tìm thấy danh mục slug “${catSlug || String(m.danh_muc)}” ("danh_muc" là slug của danh mục đã có, vd. "dien-thoai").`);
+      return undefined;
+    }
+  }
+  const missing: string[] = [];
   if (!variants) missing.push("Giá bán", "Tồn kho", "SKU");
-  return { slug, name: title, brand, source: ref.source ?? null, code: ref.code ?? null, variants, missing };
+  return {
+    slug,
+    name: title,
+    brand,
+    source: ref.source ?? null,
+    code: ref.code ?? null,
+    variants,
+    categoryId: category?.id ?? null,
+    categoryName: category?.label ?? null,
+    missing,
+  };
 }
 
 const LEGACY_VARIANT_KEYS = ["sku", "gia_ban", "gia_niem_yet", "ton_kho"] as const;
@@ -455,18 +479,19 @@ export function validatePackage(
       const ref = { slug: str(m.slug) || undefined, source: str(m.nguon) || undefined, code: str(m.ma_san_pham) || undefined };
       if (!ref.slug && !(ref.source && ref.code)) return err('Sản phẩm cần "slug" hoặc cặp "nguon" + "ma_san_pham".');
       const found = lookupProduct(ref);
-      // Không tìm thấy → sản phẩm MỚI (tạo trong “Danh mục chờ”, Ẩn) — kiểm tra theo quy tắc form tạo sản phẩm.
+      // Không tìm thấy → sản phẩm MỚI (vào danh mục ghi trong gói hoặc do quản trị chọn) — kiểm tra theo quy tắc form tạo sản phẩm.
       let create: NewProduct | undefined;
       let existingVariants: PkgVariants | undefined;
       if (!found) {
-        create = newProduct(m, title, summary, ref, err);
+        create = newProduct(m, title, summary, ref, err, lookupCategory);
         if (!create) return;
       } else if (hasKey("bien_the")) {
         // Sản phẩm đã có + "bien_the": đối chiếu theo SKU ở bước xem trước (thêm / cập nhật / giữ nguyên).
         const v = productVariants(m, err);
         if (!v) return;
         existingVariants = v;
-        if (hasKey("thuong_hieu")) warn('Sản phẩm đã có: gói không đổi thương hiệu — bỏ qua "thuong_hieu".');
+        for (const k of ["thuong_hieu", "danh_muc"])
+          if (hasKey(k)) warn(`Sản phẩm đã có: gói không đổi thương hiệu hay danh mục — bỏ qua "${k}".`);
       } else {
         const ignored = CREATE_ONLY_KEYS.filter((k) => hasKey(k));
         if (ignored.length)
